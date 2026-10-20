@@ -81,6 +81,23 @@ import {
   lintIterationDiscipline,
   type IterationLineageSnapshot
 } from "./iterationDiscipline.js";
+import {
+  DEFAULT_LANGUAGE,
+  createTranslator,
+  resolveLanguageFromEnvironment,
+  type SupportedLanguage,
+  type TranslateParams
+} from "../i18n/index.js";
+
+type Translator = (key: string, params?: TranslateParams) => string;
+
+function reviewLang(document?: { lang?: SupportedLanguage }): SupportedLanguage {
+  return document?.lang ?? DEFAULT_LANGUAGE;
+}
+
+function reviewTranslator(lang: SupportedLanguage = DEFAULT_LANGUAGE): Translator {
+  return createTranslator(lang);
+}
 
 export type EditorialCompilation = {
   manifest: Manifest;
@@ -205,6 +222,8 @@ export type ReviewCompositionProposal = {
 export type ReviewDocument = {
   fast_edit?: Manifest["fast_edit"];
   schema_version: 1 | 2 | 3;
+  /** Omitted when ja so existing review-data.json stays byte-compatible. */
+  lang?: SupportedLanguage;
   run_id: string;
   slug: string;
   summary: {
@@ -421,6 +440,8 @@ type WriteCreativeReviewOptions = {
   stateDir?: string;
   /** Explicit resolved authority preferred over project.orchestration.mode. */
   runtime_authority?: ResolvedRuntimeAuthority;
+  /** CLI --lang. Resolved with env / user config / project.lang / ja. */
+  lang?: string;
 };
 
 type ManifestMotionPlan = NonNullable<Manifest["clips"][number]["motion"]>;
@@ -1291,8 +1312,10 @@ export function createReviewDocument(
   plan: ExecutionPlan,
   editorial?: EditorialReview,
   composition?: CompositionReview,
-  runtime_authority?: ResolvedRuntimeAuthority
+  runtime_authority?: ResolvedRuntimeAuthority,
+  lang: SupportedLanguage = DEFAULT_LANGUAGE
 ): ReviewDocument {
+  const tr = reviewTranslator(lang);
   const orchestrationMode = orchestrationModeFromAuthority(runtime_authority, project);
   const images = new Map(manifest.images.map((image) => [image.id, image]));
   const speakers = new Map(manifest.speakers.map((speaker) => [speaker.id, speaker]));
@@ -1355,8 +1378,8 @@ export function createReviewDocument(
           emphasis: caption.emphasis,
           badges: caption.visual?.badges ?? [],
           chapter: chapter?.title,
-          image: imageId ? toReviewAsset(images.get(imageId)) : generationReviewAsset(request),
-          reference_images: generationReferenceReviewAssets(request),
+          image: imageId ? toReviewAsset(images.get(imageId)) : generationReviewAsset(request, tr),
+          reference_images: generationReferenceReviewAssets(request, tr),
           prompt: request?.prompt,
           model: request?.model,
           input_mode: request ? generationRequestMode(request) : undefined,
@@ -1364,47 +1387,48 @@ export function createReviewDocument(
           ...(motionTargets.length > 1 ? { motion_targets: motionTargets } : {})
         } satisfies ReviewShot;
       })
-    : createFallbackStoryboard(project, manifest, images);
+    : createFallbackStoryboard(project, manifest, images, tr);
 
   const storyboardDuration = storyboard.reduce((maximum, shot) => Math.max(maximum, shot.end), 0);
-  const motionDesign = createReviewMotionDesign(plan, manifest, storyboard);
+  const motionDesign = createReviewMotionDesign(plan, manifest, storyboard, tr);
   const title = manifest.presentation?.title ?? project.name ?? manifest.presentation?.source_title ?? project.slug;
   const configPlaceholder = "<project.yaml>";
   const gateBase = `bin/pipeline gate --config ${configPlaceholder} --actor coordinator --gate gate-1`;
   const warnings: string[] = [];
   if (backgroundImageId && !background) {
-    warnings.push(`背景画像ID ${backgroundImageId} が manifest.images に見つかりません。`);
+    warnings.push(tr("review.warn.background_missing", { id: backgroundImageId }));
   }
-  if (characters.length === 0) warnings.push("この計画にはキャラクター定義がありません。");
+  if (characters.length === 0) warnings.push(tr("review.warn.no_characters"));
   if (storyboard.every((shot) => !shot.image)) {
-    warnings.push("絵コンテに使用できる静止画がないため、仮の構成図を表示しています。");
+    warnings.push(tr("review.warn.no_stills"));
   }
-  if (manifest.presentation?.draft) warnings.push("この提案はドラフトとしてマークされています。");
+  if (manifest.presentation?.draft) warnings.push(tr("review.warn.draft"));
   if (manifest.native_edit?.mode === "replace") {
-    warnings.push("ネイティブ仕様が書き出し内容全体を定義します。絵コンテは素材・生成リクエストの確認用で、ネイティブ編集内容のタイムラインを表しません。");
+    warnings.push(tr("review.warn.native_replace"));
   }
   if (motionDesign.status === "unspecified") {
-    warnings.push("動き・アニメーション設計が未指定です。最終確認前に、全体方針またはカット別モーションを確認してください。");
+    warnings.push(tr("review.warn.motion_unspecified"));
   }
   if (manifest.native_edit?.mode !== "replace" && Math.abs(storyboardDuration - manifest.meta.target_duration_seconds) > 0.01) {
     warnings.push(
-      `絵コンテ尺 ${formatSeconds(storyboardDuration)} と目標尺 ${formatSeconds(manifest.meta.target_duration_seconds)} が一致していません。`
+      tr("review.warn.duration_mismatch", {
+        storyboard: formatSeconds(storyboardDuration, tr),
+        target: formatSeconds(manifest.meta.target_duration_seconds, tr)
+      })
     );
   }
   const storyboardIds = new Set(storyboard.map((shot) => shot.id));
   const unmatchedRequests = [...generationRequests.keys()].filter((id) => !storyboardIds.has(id));
   if (unmatchedRequests.length > 0 && manifest.captions.length > 0) {
-    warnings.push(`絵コンテとIDが一致しない生成リクエスト: ${unmatchedRequests.join(", ")}`);
+    warnings.push(tr("review.warn.unmatched_requests", { ids: unmatchedRequests.join(", ") }));
   }
   if (project.analysis && !editorial) {
-    warnings.push("解析成果物が未生成または不整合です。最終承認には進めません。");
+    warnings.push(tr("review.warn.analysis_missing"));
   }
   for (const handoff of plan.agent_handoffs) {
     if ((handoff.phase === "generation" || handoff.phase === "audio") && handoff.connection) {
       const status = handoff.setup_status ?? "needs-verification";
-      warnings.push(
-        `接続 '${handoff.connection}' の状態は ${status} です。最終承認前にログイン、利用権限、残クレジットを確認してください。`
-      );
+      warnings.push(tr("review.warn.connection_status", { connection: handoff.connection, status }));
     }
   }
 
@@ -1427,6 +1451,7 @@ export function createReviewDocument(
 
   return {
     schema_version: project.composition ? 3 : project.analysis ? 2 : 1,
+    ...(lang !== DEFAULT_LANGUAGE ? { lang } : {}),
     run_id: project.run_id ?? project.slug,
     slug: project.slug,
     summary: {
@@ -1648,7 +1673,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function createFallbackStoryboard(
   project: Project,
   manifest: Manifest,
-  images: Map<string, Manifest["images"][number]>
+  images: Map<string, Manifest["images"][number]>,
+  tr: Translator
 ): ReviewShot[] {
   if ((project.generation?.requests.length ?? 0) > 0) {
     let cursor = 0;
@@ -1669,8 +1695,8 @@ function createFallbackStoryboard(
         prompt: request.prompt,
         model: request.model,
         input_mode: generationRequestMode(request),
-        image: generationReviewAsset(request),
-        reference_images: generationReferenceReviewAssets(request)
+        image: generationReviewAsset(request, tr),
+        reference_images: generationReferenceReviewAssets(request, tr)
       };
     });
   }
@@ -1827,7 +1853,8 @@ function toReviewMotion(
 function createReviewMotionDesign(
   plan: ExecutionPlan,
   manifest: Manifest,
-  storyboard: ReviewShot[]
+  storyboard: ReviewShot[],
+  tr: Translator
 ): ReviewMotionDesign {
   const declared = manifest.presentation?.motion_design;
   const hasShotMotion = storyboard.some((shot) => Boolean(shot.motion));
@@ -1835,22 +1862,23 @@ function createReviewMotionDesign(
   return {
     status,
     summary: declared?.summary ?? (hasShotMotion
-      ? "カット別の動きは指定されていますが、映像全体のモーション方針は未指定です。"
-      : "映像全体の動きとカット別アニメーションは未指定です。"),
+      ? tr("review.motion.summary_partial")
+      : tr("review.motion.summary_unspecified")),
     ...(declared?.pacing ? { pacing: declared.pacing } : {}),
     principles: declared?.principles ?? [],
-    implementation: motionImplementation(plan.backend, plan.motion_review)
+    implementation: motionImplementation(plan.backend, plan.motion_review, tr)
   };
 }
 
 function motionImplementation(
   backend: string,
-  motionReview: ExecutionPlan["motion_review"]
+  motionReview: ExecutionPlan["motion_review"],
+  tr: Translator
 ): ReviewMotionDesign["implementation"] {
   return {
     backend,
     surface: motionReview?.surface ?? "Backend-native composition",
-    method: motionReview?.method ?? "編集エンジンの実装仕様に従う",
+    method: motionReview?.method ?? tr("review.motion.method_default"),
     preview: motionReview?.preview === "html-css-approximation"
       ? "HTML / CSS approximation"
       : "specification only"
@@ -1869,21 +1897,21 @@ function reviewBackgroundImageId(manifest: Manifest): string | undefined {
     ?? (manifest.images.some((image) => image.id === "background") ? "background" : undefined);
 }
 
-function generationReviewAsset(request: GenerationRequest | undefined): ReviewAsset | undefined {
+function generationReviewAsset(request: GenerationRequest | undefined, tr: Translator): ReviewAsset | undefined {
   if (!request?.first_frame) return undefined;
   return {
     id: `${request.id}-first-frame`,
     src: request.first_frame,
-    alt: `${request.id}の開始フレーム`,
+    alt: tr("review.asset.first_frame", { id: request.id }),
     source_scope: "project"
   };
 }
 
-function generationReferenceReviewAssets(request: GenerationRequest | undefined): ReviewAsset[] {
+function generationReferenceReviewAssets(request: GenerationRequest | undefined, tr: Translator): ReviewAsset[] {
   return (request?.reference_images ?? []).map((src, index) => ({
     id: `${request!.id}-reference-${String(index + 1).padStart(2, "0")}`,
     src,
-    alt: `${request!.id}の参照画像${index + 1}`,
+    alt: tr("review.asset.reference", { id: request!.id, index: index + 1 }),
     source_scope: "project"
   }));
 }
@@ -1897,6 +1925,10 @@ export async function writeCreativeReview(
     : getCreativeReviewDir(configPath, options.project, options.stateDir);
   const assetsDir = resolve(outputDir, "assets");
   await mkdir(assetsDir, { recursive: true });
+  const lang = resolveLanguageFromEnvironment({
+    cliLang: options.lang,
+    projectLang: options.project.lang
+  }).language;
 
   const loadedEditorial = options.project.analysis
     ? await loadEditorialReview(configPath, options.project, options.manifest, options.stateDir)
@@ -1921,8 +1953,9 @@ export async function writeCreativeReview(
           approvalDigest: loadedComposition.approvalDigest,
           ...(loadedComposition.compilation ? { compilation: loadedComposition.compilation } : {})
         }
-      : undefined,
-    options.runtime_authority
+        : undefined,
+    options.runtime_authority,
+    lang
   );
   // Durable canonical GateBundle for active mode: same digest Gate1 will load.
   // Incomplete plan/compilation evidence leaves review readable (Gate1 approve fails closed).
@@ -2253,10 +2286,10 @@ async function attachReviewPreviewVideos(
   }
 }
 
-function renderAnalysisReview(analysis: ReviewDocument["analysis"]): string {
+function renderAnalysisReview(analysis: ReviewDocument["analysis"], tr: Translator = reviewTranslator()): string {
   if (!analysis) return "";
   if (analysis.status !== "ready") {
-    return `<section class="warnings" aria-labelledby="analysis-title"><h2 id="analysis-title">解析レビュー</h2><p>解析成果物が揃っていません。</p></section>`;
+    return `<section class="warnings" aria-labelledby="analysis-title"><h2 id="analysis-title">${tr("review.analysis.title")}</h2><p>${tr("review.analysis.missing")}</p></section>`;
   }
   const appliedCutIds = new Set(analysis.editorial?.applied_cut_ids ?? []);
   const cutPoints = analysis.outputs.cut_points.map((candidate) => {
@@ -2264,7 +2297,7 @@ function renderAnalysisReview(analysis: ReviewDocument["analysis"]): string {
     const end = numericField(candidate, "source_end");
     const kind = stringField(candidate, "kind") ?? "candidate";
     const id = stringField(candidate, "id");
-    const status = id && appliedCutIds.has(id) ? "適用予定" : "保持";
+    const status = id && appliedCutIds.has(id) ? tr("review.analysis.will_apply") : tr("review.analysis.keep");
     return `<li><time>${formatTime(start)}–${formatTime(end)}</time> ${escapeHtml(kind)} · ${status}</li>`;
   }).join("");
   const transcriptCount = analysis.outputs.transcripts.reduce((count, transcript) => {
@@ -2276,40 +2309,46 @@ function renderAnalysisReview(analysis: ReviewDocument["analysis"]): string {
     return count + (Array.isArray(captions) ? captions.length : 0);
   }, 0);
   const editorialSummary = analysis.editorial
-    ? `<p><b>最終承認後の適用予定:</b> ${analysis.editorial.applied_cut_ids.length}候補を削除、${formatSeconds(analysis.editorial.removed_duration_seconds)}短縮、出力${formatSeconds(analysis.editorial.output_duration_seconds)}、字幕${analysis.editorial.caption_count}件、章${analysis.editorial.chapter_count}件。</p>`
+    ? `<p><b>${tr("review.analysis.apply_summary")}</b> ${tr("review.analysis.apply_detail", {
+      cuts: analysis.editorial.applied_cut_ids.length,
+      removed: formatSeconds(analysis.editorial.removed_duration_seconds, tr),
+      output: formatSeconds(analysis.editorial.output_duration_seconds, tr),
+      captions: analysis.editorial.caption_count,
+      chapters: analysis.editorial.chapter_count
+    })}</p>`
     : "";
   return `<section class="conditions" aria-labelledby="analysis-title" data-testid="analysis-review">
-    <div class="section-heading"><div><p class="eyebrow">SOURCE TIMESTAMP / PROPOSED</p><h2 id="analysis-title">解析レビュー</h2></div><p>${analysis.editorial ? "明示された編集方針だけを最終承認後に適用します。" : "元動画の時刻を保った確認候補です。自動削除は行いません。"}</p></div>
-    <dl class="metrics"><div><dt>文字起こしsegment</dt><dd>${transcriptCount}</dd></div><div><dt>フィラー・カット確認候補</dt><dd>${analysis.outputs.cut_points.length}</dd></div><div><dt>章</dt><dd>${analysis.outputs.chapters.length}</dd></div><div><dt>要約</dt><dd>${analysis.outputs.summaries.length}</dd></div><div><dt>翻訳字幕</dt><dd>${subtitleCount}</dd></div></dl>
+    <div class="section-heading"><div><p class="eyebrow">SOURCE TIMESTAMP / PROPOSED</p><h2 id="analysis-title">${tr("review.analysis.title")}</h2></div><p>${analysis.editorial ? tr("review.analysis.editorial_lede") : tr("review.analysis.candidate_lede")}</p></div>
+    <dl class="metrics"><div><dt>${tr("review.analysis.metric_transcript")}</dt><dd>${transcriptCount}</dd></div><div><dt>${tr("review.analysis.metric_cuts")}</dt><dd>${analysis.outputs.cut_points.length}</dd></div><div><dt>${tr("review.analysis.metric_chapters")}</dt><dd>${analysis.outputs.chapters.length}</dd></div><div><dt>${tr("review.analysis.metric_summaries")}</dt><dd>${analysis.outputs.summaries.length}</dd></div><div><dt>${tr("review.analysis.metric_subtitles")}</dt><dd>${subtitleCount}</dd></div></dl>
     ${editorialSummary}
-    ${cutPoints ? `<ul>${cutPoints}</ul>` : "<p>フィラー・カット確認候補はありません。</p>"}
+    ${cutPoints ? `<ul>${cutPoints}</ul>` : `<p>${tr("review.analysis.no_cuts")}</p>`}
   </section>`;
 }
 
-function renderCompositionReview(composition: ReviewDocument["composition"]): string {
+function renderCompositionReview(composition: ReviewDocument["composition"], tr: Translator = reviewTranslator()): string {
   if (!composition) return "";
   if (composition.status === "missing") {
-    return `<section class="warnings" aria-labelledby="composition-title" data-testid="composition-review"><h2 id="composition-title">構成案比較</h2><p>構成案が未生成または不整合です。エージェントに構成案の作り直しを頼んでください。</p></section>`;
+    return `<section class="warnings" aria-labelledby="composition-title" data-testid="composition-review"><h2 id="composition-title">${tr("review.composition.title")}</h2><p>${tr("review.composition.missing")}</p></section>`;
   }
   const proposals = composition.proposals.map((proposal) => {
     const segments = proposal.segments.map((segment, index) =>
-      `<li data-source-clip="${escapeAttribute(segment.source_clip_id)}" data-source-start="${segment.source_start}" data-source-end="${segment.source_end}"><b>${index + 1}. ${escapeHtml(segment.role)}</b> <code>${escapeHtml(segment.source_clip_id)} ${formatTime(segment.source_start)}–${formatTime(segment.source_end)}</code><p>${escapeHtml(segment.reason)}</p>${segment.source_src ? `<small>素材: ${escapeHtml(segment.source_src)}</small>` : ""}${segment.observation_ids.length > 0 ? `<small>根拠: ${segment.observation_ids.map(escapeHtml).join(", ")}</small>` : ""}</li>`
+      `<li data-source-clip="${escapeAttribute(segment.source_clip_id)}" data-source-start="${segment.source_start}" data-source-end="${segment.source_end}"><b>${index + 1}. ${escapeHtml(segment.role)}</b> <code>${escapeHtml(segment.source_clip_id)} ${formatTime(segment.source_start)}–${formatTime(segment.source_end)}</code><p>${escapeHtml(segment.reason)}</p>${segment.source_src ? `<small>${tr("review.composition.asset", { src: escapeHtml(segment.source_src) })}</small>` : ""}${segment.observation_ids.length > 0 ? `<small>${tr("review.composition.evidence", { ids: segment.observation_ids.map(escapeHtml).join(", ") })}</small>` : ""}</li>`
     ).join("");
     const warnings = proposal.warnings.length > 0
       ? `<ul class="warnings">${proposal.warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join("")}</ul>`
       : "";
     return `<article class="motion-shot" data-proposal-id="${escapeAttribute(proposal.id)}" data-selected="${proposal.selected}">
-      <header><span>${proposal.selected ? "SELECTED" : "PROPOSAL"}</span><h3>${escapeHtml(proposal.title)}</h3><time>${formatSeconds(proposal.estimated_duration_seconds)}</time></header>
+      <header><span>${proposal.selected ? "SELECTED" : "PROPOSAL"}</span><h3>${escapeHtml(proposal.title)}</h3><time>${formatSeconds(proposal.estimated_duration_seconds, tr)}</time></header>
       <p>${escapeHtml(proposal.rationale)}</p>
       <ol>${segments}</ol>
       ${warnings}
     </article>`;
   }).join("");
   const status = composition.status === "selection-required"
-    ? "エージェントに「この案で進めて」と伝えると、採用した構成を固定して確認画面を作り直します。"
-    : `採用案 ${escapeHtml(composition.selected_proposal_id ?? "")} をGate 1の対象として固定します。`;
+    ? tr("review.composition.select_prompt")
+    : tr("review.composition.selected", { id: escapeHtml(composition.selected_proposal_id ?? "") });
   return `<section class="motion-section" aria-labelledby="composition-title" data-testid="composition-review">
-    <div class="section-heading"><div><p class="eyebrow">MULTI-SOURCE / PROPOSALS</p><h2 id="composition-title">構成案比較</h2></div><p>${status}</p></div>
+    <div class="section-heading"><div><p class="eyebrow">MULTI-SOURCE / PROPOSALS</p><h2 id="composition-title">${tr("review.composition.title")}</h2></div><p>${status}</p></div>
     <div class="motion-score">${proposals}</div>
   </section>`;
 }
@@ -2382,30 +2421,30 @@ export async function openCreativeReview(reviewPath: string): Promise<void> {
   await promisify(execFile)(target.command, target.args);
 }
 
-function renderMotionReview(document: ReviewDocument): string {
+function renderMotionReview(document: ReviewDocument, tr: Translator = reviewTranslator()): string {
   const motionShots = document.storyboard.filter((shot) => reviewMotionPlans(shot).length > 0);
   const implementation = document.motion_design.implementation;
   const previewDescription = implementation.preview === "HTML / CSS approximation"
-    ? "HTML / CSSによる近似プレビュー"
-    : "仕様表示のみ";
+    ? tr("review.motion.preview_html")
+    : tr("review.motion.preview_spec");
   const principles = document.motion_design.principles.length > 0
     ? `<ul>${document.motion_design.principles.map((principle) => `<li>${escapeHtml(principle)}</li>`).join("")}</ul>`
-    : `<p class="muted">全体原則は未指定です。</p>`;
+    : `<p class="muted">${tr("review.motion.empty_principles")}</p>`;
   const shotRows = motionShots.length > 0
     ? motionShots.map((shot) => `<article class="motion-shot">
         <header><span>SHOT ${String(shot.order).padStart(2, "0")}</span><h3>${escapeHtml(shot.title)}</h3><time>${formatTime(shot.start)}–${formatTime(shot.end)}</time></header>
-        ${reviewMotionPlans(shot).map(renderMotionTargetPlan).join("")}
+        ${reviewMotionPlans(shot).map((motion) => renderMotionTargetPlan(motion, tr)).join("")}
       </article>`).join("")
-    : `<div class="motion-empty"><strong>個別モーションは未指定です</strong><p>エージェントに「動きをつけて」と頼むと、入場・強調・退場・次カットへの遷移がここに表示されます。</p></div>`;
+    : `<div class="motion-empty"><strong>${tr("review.motion.empty_cues_title")}</strong><p>${tr("review.motion.empty_cues_body")}</p></div>`;
 
   return `<section class="motion-section" aria-labelledby="motion-title" data-testid="motion-design">
-    <div class="section-heading"><div><p class="eyebrow">MOTION / IMPLEMENTATION</p><h2 id="motion-title">動き・アニメーション設計</h2></div><p>カットの動き、対象レイヤー、尺、イージング、実装方法を最終確認の前に揃えます。</p></div>
+    <div class="section-heading"><div><p class="eyebrow">MOTION / IMPLEMENTATION</p><h2 id="motion-title">${tr("review.motion.title")}</h2></div><p>${tr("review.motion.lede")}</p></div>
     <div class="motion-overview">
-      <div><span class="motion-status" data-status="${escapeAttribute(document.motion_design.status)}">${motionStatusLabel(document.motion_design.status)}</span><h3>${escapeHtml(document.motion_design.summary)}</h3>${document.motion_design.pacing ? `<p><b>テンポ:</b> ${escapeHtml(document.motion_design.pacing)}</p>` : ""}${principles}</div>
-      <dl><div><dt>編集エンジン</dt><dd>${escapeHtml(implementation.backend)}</dd></div><div><dt>実装面</dt><dd>${escapeHtml(implementation.surface)}</dd></div><div><dt>実装方法</dt><dd>${escapeHtml(implementation.method)}</dd></div><div><dt>レビュー表示</dt><dd>${previewDescription}</dd></div><div><dt>指定済み</dt><dd>${motionShots.length} / ${document.storyboard.length}カット</dd></div></dl>
+      <div><span class="motion-status" data-status="${escapeAttribute(document.motion_design.status)}">${motionStatusLabel(document.motion_design.status, tr)}</span><h3>${escapeHtml(document.motion_design.summary)}</h3>${document.motion_design.pacing ? `<p><b>${tr("review.motion.pacing")}</b> ${escapeHtml(document.motion_design.pacing)}</p>` : ""}${principles}</div>
+      <dl><div><dt>${tr("review.motion.backend")}</dt><dd>${escapeHtml(implementation.backend)}</dd></div><div><dt>${tr("review.motion.surface")}</dt><dd>${escapeHtml(implementation.surface)}</dd></div><div><dt>${tr("review.motion.method")}</dt><dd>${escapeHtml(implementation.method)}</dd></div><div><dt>${tr("review.motion.preview")}</dt><dd>${previewDescription}</dd></div><div><dt>${tr("review.motion.specified")}</dt><dd>${tr("review.motion.shots_unit", { count: motionShots.length, total: document.storyboard.length })}</dd></div></dl>
     </div>
     <div class="motion-score">${shotRows}</div>
-    <p class="motion-disclaimer">この動きはレビュー用の近似表示です。最終映像は選択したbackendのフレーム計算・タイムライン実装で再現し、render後にGate 3で確認します。</p>
+    <p class="motion-disclaimer">${tr("review.motion.disclaimer")}</p>
   </section>`;
 }
 
@@ -2414,120 +2453,129 @@ function reviewMotionPlans(shot: ReviewShot): ReviewMotionPlan[] {
   return shot.motion ? [shot.motion] : [];
 }
 
-function renderMotionTargetPlan(motion: ReviewMotionPlan): string {
-  const targetLabel = motion.target ? `${motion.target.type} ${motion.target.id}` : "対象未指定";
+function renderMotionTargetPlan(motion: ReviewMotionPlan, tr: Translator = reviewTranslator()): string {
+  const targetLabel = motion.target ? `${motion.target.type} ${motion.target.id}` : tr("review.motion.target_unspecified");
   const hasContent = motion.cues.length > 0 || motion.audio_reactive;
   return `<section class="motion-target-plan">
-    <p class="motion-target-label"><b>対象:</b> ${escapeHtml(targetLabel)}</p>
-    <div class="motion-cues">${motion.cues.map(renderMotionCue).join("") || (hasContent ? "" : `<p class="muted">実装メモのみが指定されています。</p>`)}</div>
-    ${renderAudioReactiveMotion(motion)}
+    <p class="motion-target-label"><b>${tr("review.motion.target")}</b> ${escapeHtml(targetLabel)}</p>
+    <div class="motion-cues">${motion.cues.map((cue) => renderMotionCue(cue, tr)).join("") || (hasContent ? "" : `<p class="muted">${tr("review.motion.notes_only")}</p>`)}</div>
+    ${renderAudioReactiveMotion(motion, tr)}
     ${motion.implementation_notes.length > 0 ? `<ul class="motion-notes">${motion.implementation_notes.map((note) => `<li>${escapeHtml(note)}</li>`).join("")}</ul>` : ""}
   </section>`;
 }
 
-function renderProductionControlShadow(summary: ProductionControlShadowSummary | undefined): string {
+function renderProductionControlShadow(summary: ProductionControlShadowSummary | undefined, tr: Translator = reviewTranslator()): string {
   if (!summary) return "";
   const reasons = summary.awaiting_human_reasons.length > 0
     ? `<ul>${summary.awaiting_human_reasons.map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}</ul>`
-    : "<p class=\"muted\">追加の人間判断理由はありません。</p>";
+    : `<p class="muted">${tr("review.shadow.no_reasons")}</p>`;
   const issues = summary.issue_codes.length > 0
     ? `<p class=\"shadow-issues\"><b>ISSUES</b> ${summary.issue_codes.map((issue) => escapeHtml(issue)).join(" / ")}</p>`
     : "";
-  return `<section class=\"production-control-shadow\" aria-labelledby=\"production-control-shadow-title\" data-testid=\"production-control-shadow\"><div class=\"section-heading\"><div><p class=\"eyebrow\">READ-ONLY SHADOW</p><h2 id=\"production-control-shadow-title\">Task Tree / Production Control</h2></div><p>従来の計画・Gate・render状態を変更しない読み取り専用の構造確認です。</p></div><dl><div><dt>STATUS</dt><dd>${escapeHtml(summary.status)}</dd></div><div><dt>PRODUCTION</dt><dd>${escapeHtml(summary.production_id)}</dd></div><div><dt>CONTRACT DIGEST</dt><dd>${escapeHtml(summary.contract_digest ?? "未生成")}</dd></div><div><dt>TREE DIGEST</dt><dd>${escapeHtml(summary.tree_digest ?? "未生成")}</dd></div><div><dt>NODES</dt><dd>${summary.node_count === undefined ? "未生成" : String(summary.node_count)}</dd></div></dl>${reasons}${issues}</section>`;
+  const missing = tr("review.shadow.not_generated");
+  return `<section class=\"production-control-shadow\" aria-labelledby=\"production-control-shadow-title\" data-testid=\"production-control-shadow\"><div class=\"section-heading\"><div><p class=\"eyebrow\">READ-ONLY SHADOW</p><h2 id=\"production-control-shadow-title\">Task Tree / Production Control</h2></div><p>${tr("review.shadow.lede")}</p></div><dl><div><dt>STATUS</dt><dd>${escapeHtml(summary.status)}</dd></div><div><dt>PRODUCTION</dt><dd>${escapeHtml(summary.production_id)}</dd></div><div><dt>CONTRACT DIGEST</dt><dd>${escapeHtml(summary.contract_digest ?? missing)}</dd></div><div><dt>TREE DIGEST</dt><dd>${escapeHtml(summary.tree_digest ?? missing)}</dd></div><div><dt>NODES</dt><dd>${summary.node_count === undefined ? missing : String(summary.node_count)}</dd></div></dl>${reasons}${issues}</section>`;
 }
 
-function renderMotionCue(cue: ReviewMotionCue): string {
+function renderMotionCue(cue: ReviewMotionCue, tr: Translator = reviewTranslator()): string {
   const timing = [
-    cue.duration_seconds !== undefined ? `${formatNumber(cue.duration_seconds)}秒` : undefined,
+    cue.duration_seconds !== undefined ? tr("review.format.seconds", { value: formatNumber(cue.duration_seconds) }) : undefined,
     cue.easing
   ].filter(Boolean).join(" · ");
   return `<div class="motion-cue" data-motion-preset="${escapeAttribute(cue.preset)}">
     <div class="motion-demo" aria-hidden="true"><span class="motion-demo-layer">${escapeHtml(shorten(cue.target, 16))}</span></div>
-    <div><span class="motion-phase">${motionPhaseLabel(cue.phase)}</span><h4>${escapeHtml(cue.label ?? cue.description)}</h4><p>${escapeHtml(cue.description)}</p><small>${escapeHtml(cue.target)}${timing ? ` · ${escapeHtml(timing)}` : ""}</small></div>
+    <div><span class="motion-phase">${motionPhaseLabel(cue.phase, tr)}</span><h4>${escapeHtml(cue.label ?? cue.description)}</h4><p>${escapeHtml(cue.description)}</p><small>${escapeHtml(cue.target)}${timing ? ` · ${escapeHtml(timing)}` : ""}</small></div>
   </div>`;
 }
 
-function renderShotMotionDetails(shot: ReviewShot): string {
+function renderShotMotionDetails(shot: ReviewShot, tr: Translator = reviewTranslator()): string {
   const motions = reviewMotionPlans(shot);
   if (motions.length === 0) {
-    return `<div class="shot-motion-detail"><h3>動き・アニメーション</h3><p class="muted">このカットのモーションは未指定です。</p></div>`;
+    return `<div class="shot-motion-detail"><h3>${tr("review.motion.shot_title")}</h3><p class="muted">${tr("review.motion.shot_unspecified")}</p></div>`;
   }
-  return `<div class="shot-motion-detail"><h3>動き・アニメーション</h3>${motions.map((motion) => `<section class="shot-motion-target"><b>対象:</b> ${escapeHtml(motion.target ? `${motion.target.type} ${motion.target.id}` : "対象未指定")}<ol>${motion.cues.map((cue) => `<li><b>${motionPhaseLabel(cue.phase)}:</b> ${escapeHtml(cue.label ?? cue.description)} <span>${escapeHtml(cue.preset)}${cue.duration_seconds !== undefined ? ` / ${formatNumber(cue.duration_seconds)}秒` : ""}${cue.easing ? ` / ${escapeHtml(cue.easing)}` : ""}</span></li>`).join("")}</ol>${renderAudioReactiveMotion(motion)}${motion.implementation_notes.length > 0 ? `<p><b>実装メモ:</b> ${motion.implementation_notes.map(escapeHtml).join(" / ")}</p>` : ""}</section>`).join("")}</div>`;
+  return `<div class="shot-motion-detail"><h3>${tr("review.motion.shot_title")}</h3>${motions.map((motion) => `<section class="shot-motion-target"><b>${tr("review.motion.target")}</b> ${escapeHtml(motion.target ? `${motion.target.type} ${motion.target.id}` : tr("review.motion.target_unspecified"))}<ol>${motion.cues.map((cue) => `<li><b>${motionPhaseLabel(cue.phase, tr)}:</b> ${escapeHtml(cue.label ?? cue.description)} <span>${escapeHtml(cue.preset)}${cue.duration_seconds !== undefined ? ` / ${tr("review.format.seconds", { value: formatNumber(cue.duration_seconds) })}` : ""}${cue.easing ? ` / ${escapeHtml(cue.easing)}` : ""}</span></li>`).join("")}</ol>${renderAudioReactiveMotion(motion, tr)}${motion.implementation_notes.length > 0 ? `<p><b>${tr("review.motion.implementation_notes")}</b> ${motion.implementation_notes.map(escapeHtml).join(" / ")}</p>` : ""}</section>`).join("")}</div>`;
 }
 
-function renderAudioReactiveMotion(motion: ReviewMotionPlan): string {
+function renderAudioReactiveMotion(motion: ReviewMotionPlan, tr: Translator = reviewTranslator()): string {
   const cue = motion.audio_reactive;
   if (!cue) return "";
-  return `<p class="motion-audio-reactive" data-testid="motion-audio-reactive"><b>音連動:</b> ${escapeHtml(cue.mode)} · 音源 ${escapeHtml(cue.source_track_id)} → 対象 ${escapeHtml(`${cue.target.type} ${cue.target.id}`)} · 強度 ${formatNumber(cue.strength)} · 窓 ${cue.measurement_window_ms} ms</p>`;
+  return `<p class="motion-audio-reactive" data-testid="motion-audio-reactive"><b>${tr("review.motion.audio_reactive")}</b> ${escapeHtml(cue.mode)} · ${tr("review.motion.audio_source", {
+    source: escapeHtml(cue.source_track_id),
+    target: escapeHtml(`${cue.target.type} ${cue.target.id}`),
+    strength: formatNumber(cue.strength),
+    window: cue.measurement_window_ms
+  })}</p>`;
 }
 
-function motionStatusLabel(status: ReviewMotionDesign["status"]): string {
-  if (status === "declared") return "全体・カット指定済み";
-  if (status === "partial") return "一部指定";
-  return "未指定";
+function motionStatusLabel(status: ReviewMotionDesign["status"], tr: Translator = reviewTranslator()): string {
+  if (status === "declared") return tr("review.motion.status_declared");
+  if (status === "partial") return tr("review.motion.status_partial");
+  return tr("review.motion.status_unspecified");
 }
 
-function motionPhaseLabel(phase: ReviewMotionCue["phase"]): string {
-  if (phase === "entrance") return "入場";
-  if (phase === "emphasis") return "強調";
-  if (phase === "exit") return "退場";
-  return "次カットへの遷移";
+function motionPhaseLabel(phase: ReviewMotionCue["phase"], tr: Translator = reviewTranslator()): string {
+  if (phase === "entrance") return tr("review.motion.phase_entrance");
+  if (phase === "emphasis") return tr("review.motion.phase_emphasis");
+  if (phase === "exit") return tr("review.motion.phase_exit");
+  return tr("review.motion.phase_transition");
 }
 
 function renderNativeEditReview(
-  review: ReviewDocument["native_edit_review"]
+  review: ReviewDocument["native_edit_review"],
+  tr: Translator = reviewTranslator()
 ): string {
   if (!review) return "";
   const codeInputs = review.code_inputs.length
     ? `<ul>${review.code_inputs.map((input) => `<li><code>${escapeHtml(input.path)}</code> · SHA-256 <code>${escapeHtml(input.sha256)}</code><pre>${escapeHtml(input.preview)}${input.preview.length >= 180 ? "…" : ""}</pre></li>`).join("")}</ul>`
-    : "<p class=\"muted\">コードらしい入力は検出されませんでした。仕様全体のダイジェストをGate 1承認に結び付けます。</p>";
+    : `<p class="muted">${tr("review.native.no_code")}</p>`;
   const assets = review.assets.length
     ? `<ul>${review.assets.map((asset) => `<li><b>${escapeHtml(asset.asset_id)}</b> · ${escapeHtml(asset.kind)}${asset.family ? ` · ${escapeHtml(asset.family)}${asset.style ? ` / ${escapeHtml(asset.style)}` : ""}` : ""} · ${escapeHtml(asset.src)}</li>`).join("")}</ul>`
-    : "<p class=\"muted\">追加のローカルメディアはありません。</p>";
+    : `<p class="muted">${tr("review.native.no_assets")}</p>`;
   const outputs = review.outputs.length
     ? `<ul>${review.outputs.map((output) => {
       const details = [
-        output.duration_seconds === undefined ? undefined : `尺 ${output.duration_seconds}s`,
+        output.duration_seconds === undefined ? undefined : tr("review.native.duration", { seconds: output.duration_seconds }),
         output.width === undefined || output.height === undefined ? undefined : `${output.width}×${output.height}`,
         output.fps === undefined ? undefined : `${output.fps} fps`,
         output.video_codec === undefined ? undefined : `codec ${output.video_codec}`,
-        output.alpha_required === undefined ? undefined : `alpha ${output.alpha_required ? "必須" : "不要"}`,
-        output.audio_required === undefined ? undefined : `audio ${output.audio_required ? "必須" : "不要"}`
+        output.alpha_required === undefined ? undefined : `alpha ${output.alpha_required ? tr("review.native.alpha_required") : tr("review.native.alpha_optional")}`,
+        output.audio_required === undefined ? undefined : `audio ${output.audio_required ? tr("review.native.audio_required") : tr("review.native.audio_optional")}`
       ].filter((detail): detail is string => detail !== undefined).join(" · ");
       return `<li><code>${escapeHtml(output.kind)}</code> · <code>${escapeHtml(output.path)}</code>${details ? ` · ${escapeHtml(details)}` : ""}</li>`;
     }).join("")}</ul>`
-    : "<p class=\"muted\">追加の出力はありません。</p>";
+    : `<p class="muted">${tr("review.native.no_outputs")}</p>`;
   const primaryOutput = review.primary_output
-    ? `<p><b>canonical output:</b> ${review.primary_output.width}×${review.primary_output.height} · ${review.primary_output.fps} fps · audio ${review.primary_output.audio_required ? "必須" : "不要"}</p>`
+    ? `<p><b>canonical output:</b> ${review.primary_output.width}×${review.primary_output.height} · ${review.primary_output.fps} fps · audio ${review.primary_output.audio_required ? tr("review.native.canonical_audio") : tr("review.native.canonical_audio_off")}</p>`
     : "";
   const bindings = review.generated_bindings.length
-    ? `<div><h3>生成素材の実行時binding</h3><ul>${review.generated_bindings.map((binding) => `<li><code>${escapeHtml(binding)}</code> → Gate2で対応する生成結果のasset IDに解決します。</li>`).join("")}</ul></div>`
+    ? `<div><h3>${tr("review.native.bindings_title")}</h3><ul>${review.generated_bindings.map((binding) => `<li><code>${escapeHtml(binding)}</code> → ${tr("review.native.binding_item")}</li>`).join("")}</ul></div>`
     : "";
-  const modeLabel = review.mode === "replace" ? "書き出し全体を置換" : "通常の編集に追加";
-  const keys = review.payload_keys.length ? review.payload_keys.map(escapeHtml).join(", ") : "構造化キーを検出できません";
-  return `<section aria-labelledby=\"native-edit-title\" data-testid=\"native-edit-review\"><div class=\"section-heading\"><div><p class=\"eyebrow\">NATIVE AUTHORING</p><h2 id=\"native-edit-title\">ネイティブ編集仕様</h2></div><p>${review.mode === "replace" ? "ネイティブ仕様が書き出し全体を定義します。絵コンテは素材・生成リクエストの確認用で、タイムラインの代用ではありません。" : "通常の編集に承認済みネイティブ仕様とリソースを追加します。"}</p></div><dl><div><dt>適用範囲</dt><dd>${modeLabel}</dd></div><div><dt>仕様 SHA-256</dt><dd><code>${escapeHtml(review.spec_sha256)}</code></dd></div><div><dt>payload</dt><dd>${review.payload_bytes} bytes · ${keys}</dd></div></dl><p><a href=\"${escapeAttribute(review.payload_artifact_path)}\" download>承認対象のpayload全体をJSONで確認</a> · SHA-256 <code>${escapeHtml(review.payload_sha256)}</code></p><h3>payloadの一部</h3><pre>${escapeHtml(review.payload_preview)}${review.payload_preview_truncated ? "\n…" : ""}</pre><h3>確認可能なコード入力 (${review.code_inputs.length})</h3>${codeInputs}<h3>素材・リソース (${review.assets.length})</h3>${assets}<h3>正本出力</h3>${primaryOutput}<h3>追加出力 (${review.outputs.length})</h3>${outputs}${bindings}</section>`;
+  const modeLabel = review.mode === "replace" ? tr("review.native.mode_replace") : tr("review.native.mode_extend");
+  const keys = review.payload_keys.length ? review.payload_keys.map(escapeHtml).join(", ") : tr("review.native.no_keys");
+  return `<section aria-labelledby=\"native-edit-title\" data-testid=\"native-edit-review\"><div class=\"section-heading\"><div><p class=\"eyebrow\">NATIVE AUTHORING</p><h2 id=\"native-edit-title\">${tr("review.native.title")}</h2></div><p>${review.mode === "replace" ? tr("review.native.lede_replace") : tr("review.native.lede_extend")}</p></div><dl><div><dt>${tr("review.native.scope")}</dt><dd>${modeLabel}</dd></div><div><dt>${tr("review.native.spec_hash")}</dt><dd><code>${escapeHtml(review.spec_sha256)}</code></dd></div><div><dt>payload</dt><dd>${review.payload_bytes} bytes · ${keys}</dd></div></dl><p><a href=\"${escapeAttribute(review.payload_artifact_path)}\" download>${tr("review.native.download")}</a> · SHA-256 <code>${escapeHtml(review.payload_sha256)}</code></p><h3>${tr("review.native.payload_excerpt")}</h3><pre>${escapeHtml(review.payload_preview)}${review.payload_preview_truncated ? "\n…" : ""}</pre><h3>${tr("review.native.code_inputs", { count: review.code_inputs.length })}</h3>${codeInputs}<h3>${tr("review.native.assets", { count: review.assets.length })}</h3>${assets}<h3>${tr("review.native.primary_output")}</h3>${primaryOutput}<h3>${tr("review.native.extra_outputs", { count: review.outputs.length })}</h3>${outputs}${bindings}</section>`;
 }
 
 export function renderReviewHtml(document: ReviewDocument): string {
+  const lang = reviewLang(document);
+  const tr = reviewTranslator(lang);
   const maxShotDuration = Math.max(...document.storyboard.map((shot) => shot.duration), 1);
   const warnings = document.warnings.length > 0
-    ? `<section class="warnings" aria-labelledby="warnings-title"><h2 id="warnings-title">確認ポイント</h2><ul>${document.warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join("")}</ul></section>`
+    ? `<section class="warnings" aria-labelledby="warnings-title"><h2 id="warnings-title">${tr("review.page.warnings_title")}</h2><ul>${document.warnings.map((warning) => `<li>${escapeHtml(warning)}</li>`).join("")}</ul></section>`
     : "";
-  const nativeEditReview = renderNativeEditReview(document.native_edit_review);
+  const nativeEditReview = renderNativeEditReview(document.native_edit_review, tr);
   const storyboard = document.storyboard.map((shot) => {
     const image = shot.preview_video_src
-      ? `<video controls muted playsinline preload="metadata" src="${escapeAttribute(shot.preview_video_src)}" aria-label="${escapeAttribute(`${shot.title}のローカル動画プレビュー`)}"></video>`
+      ? `<video controls muted playsinline preload="metadata" src="${escapeAttribute(shot.preview_video_src)}" aria-label="${escapeAttribute(tr("review.page.video_preview", { title: shot.title }))}"></video>`
       : shot.image?.preview_src
-      ? `<img src="${escapeAttribute(shot.image.preview_src)}" alt="${escapeAttribute(shot.image.alt ?? `${shot.title}の絵コンテ`)}">`
-      : `<div class="wireframe" role="img" aria-label="${escapeAttribute(`${shot.title}の仮の構成図`)}"><span>${escapeHtml(shot.speaker ?? "VISUAL")}</span><strong>${escapeHtml(shot.title)}</strong></div>`;
+      ? `<img src="${escapeAttribute(shot.image.preview_src)}" alt="${escapeAttribute(shot.image.alt ?? tr("review.page.storyboard_alt", { title: shot.title }))}">`
+      : `<div class="wireframe" role="img" aria-label="${escapeAttribute(tr("review.page.wireframe_alt", { title: shot.title }))}"><span>${escapeHtml(shot.speaker ?? "VISUAL")}</span><strong>${escapeHtml(shot.title)}</strong></div>`;
     const barWidth = Math.max(12, (shot.duration / maxShotDuration) * 100);
     const motionCount = reviewMotionPlans(shot).reduce((count, motion) => count + motion.cues.length + Number(Boolean(motion.audio_reactive)), 0);
     return `<figure class="shot" id="shot-${escapeAttribute(shot.id)}">
-      <a class="shot-index" href="#detail-${escapeAttribute(shot.id)}" aria-label="SHOT ${String(shot.order).padStart(2, "0")} の詳細へ"><b>${String(shot.order).padStart(2, "0")}</b><small>SHOT</small></a>
+      <a class="shot-index" href="#detail-${escapeAttribute(shot.id)}" aria-label="${escapeAttribute(tr("review.page.shot_detail", { order: String(shot.order).padStart(2, "0") }))}"><b>${String(shot.order).padStart(2, "0")}</b><small>SHOT</small></a>
       <div class="shot-meta"><span>${escapeHtml(shot.speaker ?? shot.chapter ?? "VISUAL")}</span><time>${formatTime(shot.start)}–${formatTime(shot.end)}</time></div>
       <div class="frame">${image}</div>
-      <figcaption><small>${escapeHtml(shot.kicker ?? shot.chapter ?? "STORYBOARD")}</small><strong>${escapeHtml(shot.title)}</strong><p>${escapeHtml(shorten(shot.description ?? "構成を確認してください。", 72))}</p>${motionCount > 0 ? `<span class="motion-count">${motionCount} MOTION CUES</span>` : ""}</figcaption>
-      <div class="duration-track" aria-label="尺 ${formatSeconds(shot.duration)}"><span style="width:${barWidth.toFixed(2)}%"></span><b>${formatSeconds(shot.duration)}</b></div>
+      <figcaption><small>${escapeHtml(shot.kicker ?? shot.chapter ?? "STORYBOARD")}</small><strong>${escapeHtml(shot.title)}</strong><p>${escapeHtml(shorten(shot.description ?? tr("review.page.check_composition"), 72))}</p>${motionCount > 0 ? `<span class="motion-count">${motionCount} MOTION CUES</span>` : ""}</figcaption>
+      <div class="duration-track" aria-label="${tr("review.page.duration_aria", { duration: formatSeconds(shot.duration, tr) })}"><span style="width:${barWidth.toFixed(2)}%"></span><b>${formatSeconds(shot.duration, tr)}</b></div>
     </figure>`;
   }).join("");
   const characters = document.characters.length > 0
@@ -2535,17 +2583,17 @@ export function renderReviewHtml(document: ReviewDocument): string {
         const representative = character.poses.find((pose) => pose.asset?.preview_src) ?? character.poses[0];
         const image = representative?.asset?.preview_src
           ? `<img src="${escapeAttribute(representative.asset.preview_src)}" alt="${escapeAttribute(representative.asset.alt ?? character.display_name)}">`
-          : `<div class="character-placeholder" aria-label="参照画像なし">NO IMAGE</div>`;
-        return `<article class="character-card" style="--character-accent:${safeColor(character.accent)}"><div class="character-image">${image}</div><div><p class="eyebrow">${character.side === "left" ? "画面左" : "画面右"}</p><h3>${escapeHtml(character.display_name)}</h3><ul class="pose-list">${character.poses.map((pose) => `<li>${escapeHtml(pose.name)}${pose.asset ? "" : " · 画像未設定"}</li>`).join("")}</ul></div></article>`;
+          : `<div class="character-placeholder" aria-label="${tr("review.page.no_image")}">NO IMAGE</div>`;
+        return `<article class="character-card" style="--character-accent:${safeColor(character.accent)}"><div class="character-image">${image}</div><div><p class="eyebrow">${character.side === "left" ? tr("review.page.side_left") : tr("review.page.side_right")}</p><h3>${escapeHtml(character.display_name)}</h3><ul class="pose-list">${character.poses.map((pose) => `<li>${escapeHtml(pose.name)}${pose.asset ? "" : tr("review.page.pose_unset")}</li>`).join("")}</ul></div></article>`;
       }).join("")
-    : `<p class="empty">この計画にはキャラクター定義がありません。</p>`;
+    : `<p class="empty">${tr("review.page.no_characters")}</p>`;
   const details = document.storyboard.map((shot) => {
     const referenceImages = (shot.reference_images ?? []).length > 0
-      ? `<div class="reference-images" data-testid="reference-images-${escapeAttribute(shot.id)}"><h3>外部送信する参照画像</h3><div>${(shot.reference_images ?? []).map((asset) => asset.preview_src
+      ? `<div class="reference-images" data-testid="reference-images-${escapeAttribute(shot.id)}"><h3>${tr("review.page.reference_images")}</h3><div>${(shot.reference_images ?? []).map((asset) => asset.preview_src
           ? `<figure><img src="${escapeAttribute(asset.preview_src)}" alt="${escapeAttribute(asset.alt ?? asset.id)}"><figcaption>${escapeHtml(asset.src)}</figcaption></figure>`
           : `<p class="muted">${escapeHtml(asset.src)}</p>`).join("")}</div></div>`
       : "";
-    return `<details class="shot-detail" id="detail-${escapeAttribute(shot.id)}"><summary><span>SHOT ${String(shot.order).padStart(2, "0")}</span>${escapeHtml(shot.title)}<time>${formatSeconds(shot.duration)}</time></summary><div class="detail-grid"><div><h3>内容</h3><p>${escapeHtml(shot.description ?? "説明はありません。")}</p>${shot.speaker ? `<p><b>話者</b> ${escapeHtml(shot.speaker)}${shot.pose ? ` / ${escapeHtml(shot.pose)}` : ""}</p>` : ""}</div><div><h3>生成条件</h3>${shot.prompt ? `<p>${escapeHtml(shot.prompt)}</p><p class="utility">${escapeHtml([shot.model, shot.input_mode].filter(Boolean).join(" · "))}</p>` : `<p class="muted">このカットに一致する生成リクエストはありません。</p>`}${referenceImages}</div>${renderShotMotionDetails(shot)}</div></details>`;
+    return `<details class="shot-detail" id="detail-${escapeAttribute(shot.id)}"><summary><span>SHOT ${String(shot.order).padStart(2, "0")}</span>${escapeHtml(shot.title)}<time>${formatSeconds(shot.duration, tr)}</time></summary><div class="detail-grid"><div><h3>${tr("review.page.contents")}</h3><p>${escapeHtml(shot.description ?? tr("review.page.no_description"))}</p>${shot.speaker ? `<p><b>${tr("review.page.speaker")}</b> ${escapeHtml(shot.speaker)}${shot.pose ? ` / ${escapeHtml(shot.pose)}` : ""}</p>` : ""}</div><div><h3>${tr("review.page.generation")}</h3>${shot.prompt ? `<p>${escapeHtml(shot.prompt)}</p><p class="utility">${escapeHtml([shot.model, shot.input_mode].filter(Boolean).join(" · "))}</p>` : `<p class="muted">${tr("review.page.no_request")}</p>`}${referenceImages}</div>${renderShotMotionDetails(shot, tr)}</div></details>`;
   }).join("");
   const handoffs = document.handoffs.length > 0
     ? document.handoffs.map((handoff) => {
@@ -2557,66 +2605,64 @@ export function renderReviewHtml(document: ReviewDocument): string {
           : "";
         return `<li><b>${escapeHtml(handoff.phase)}</b> ${escapeHtml(handoff.adapter)}${route} · ${escapeHtml(handoff.execution)}${transfer} · AUTO FALLBACK OFF</li>`;
       }).join("")
-    : "<li>外部エージェントへの引き継ぎはありません。</li>";
-  const analysis = renderAnalysisReview(document.analysis);
-  const compositionReview = renderCompositionReview(document.composition);
-  const motionReview = renderMotionReview(document);
-  const productionControlShadow = renderProductionControlShadow(document.production_control_shadow);
-  const h3Review = renderH3Review(document.h3_compilations);
-  const videoPromptReview = renderVideoPromptReview(document.video_prompt_plans);
+    : `<li>${tr("review.page.no_handoffs")}</li>`;
+  const analysis = renderAnalysisReview(document.analysis, tr);
+  const compositionReview = renderCompositionReview(document.composition, tr);
+  const h3Review = renderH3Review(document.h3_compilations, tr);
+  const videoPromptReview = renderVideoPromptReview(document.video_prompt_plans, tr);
   const audioReview = document.audio
     ? `<section class="audio-section" aria-labelledby="audio-title" data-testid="audio-review">
-      <div class="section-heading"><div><p class="eyebrow">SOUND / TIMING</p><h2 id="audio-title">音響設計</h2></div><p>最終承認前にBGMと効果音の内容・タイミングを確認します。未解決時は停止し、別providerへの自動切り替えは行いません。</p></div>
-      <div class="audio-policy"><dl><div><dt>ADAPTER</dt><dd>${escapeHtml(document.audio.adapter ?? "未選択")}</dd></div><div><dt>FALLBACK</dt><dd>${escapeHtml(document.audio.fallback)}</dd></div><div><dt>AUTO FALLBACK</dt><dd>${document.audio.automatic_fallback ? "ON" : "OFF"}</dd></div><div><dt>EXTERNAL ACCESS</dt><dd>${document.audio.external_permission_required ? "REVIEW REQUIRED" : "NONE"}</dd></div></dl>${document.audio.transfer ? `<p class="utility">NETWORK INPUT: ${escapeHtml(document.audio.transfer.input_scope)} / REQUIRED CREDENTIAL ENV: ${escapeHtml(document.audio.transfer.credential_env.join(", ") || "none")} / OPTIONAL CREDENTIAL ENV: ${escapeHtml(document.audio.transfer.optional_credential_env.join(", ") || "none")}</p>` : ""}</div>
-      <div class="audio-tracks">${document.audio.bgm ? renderAudioTrack("BGM", document.audio.bgm) : ""}${document.audio.sfx.map((track) => renderAudioTrack("SFX", track)).join("")}</div>
+      <div class="section-heading"><div><p class="eyebrow">SOUND / TIMING</p><h2 id="audio-title">${tr("review.page.audio_title")}</h2></div><p>${tr("review.page.audio_lede")}</p></div>
+      <div class="audio-policy"><dl><div><dt>ADAPTER</dt><dd>${escapeHtml(document.audio.adapter ?? tr("review.page.adapter_unset"))}</dd></div><div><dt>FALLBACK</dt><dd>${escapeHtml(document.audio.fallback)}</dd></div><div><dt>AUTO FALLBACK</dt><dd>${document.audio.automatic_fallback ? "ON" : "OFF"}</dd></div><div><dt>EXTERNAL ACCESS</dt><dd>${document.audio.external_permission_required ? "REVIEW REQUIRED" : "NONE"}</dd></div></dl>${document.audio.transfer ? `<p class="utility">NETWORK INPUT: ${escapeHtml(document.audio.transfer.input_scope)} / REQUIRED CREDENTIAL ENV: ${escapeHtml(document.audio.transfer.credential_env.join(", ") || "none")} / OPTIONAL CREDENTIAL ENV: ${escapeHtml(document.audio.transfer.optional_credential_env.join(", ") || "none")}</p>` : ""}</div>
+      <div class="audio-tracks">${document.audio.bgm ? renderAudioTrack("BGM", document.audio.bgm, tr) : ""}${document.audio.sfx.map((track) => renderAudioTrack("SFX", track, tr)).join("")}</div>
     </section>`
     : "";
   const generationAudioReview = document.generation_audio_requests?.length
     ? `<section class="audio-section" aria-labelledby="generation-audio-title" data-testid="generation-audio-review">
-      <div class="section-heading"><div><p class="eyebrow">GENERATED SPEECH</p><h2 id="generation-audio-title">生成音声</h2></div><p>送信する文章・モデル・音声を確認してください。外部サービスの料金は予想される生成費用だけでは確認できません。</p></div>
-      <div class="audio-tracks">${document.generation_audio_requests.map((request) => `<div class="audio-policy"><h3>${escapeHtml(request.id)}</h3><p>${escapeHtml(request.operation)} · ${escapeHtml(request.model ?? "モデル未指定")} · ${escapeHtml(request.audio_role ?? "narration")}</p>${request.voice_id ? `<p>VOICE ID: ${escapeHtml(request.voice_id)}</p>` : ""}<pre style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeHtml(request.prompt)}</pre></div>`).join("")}</div>
+      <div class="section-heading"><div><p class="eyebrow">GENERATED SPEECH</p><h2 id="generation-audio-title">${tr("review.page.speech_title")}</h2></div><p>${tr("review.page.speech_lede")}</p></div>
+      <div class="audio-tracks">${document.generation_audio_requests.map((request) => `<div class="audio-policy"><h3>${escapeHtml(request.id)}</h3><p>${escapeHtml(request.operation)} · ${escapeHtml(request.model ?? tr("review.page.model_unset"))} · ${escapeHtml(request.audio_role ?? "narration")}</p>${request.voice_id ? `<p>VOICE ID: ${escapeHtml(request.voice_id)}</p>` : ""}<pre style="white-space:pre-wrap;overflow-wrap:anywhere">${escapeHtml(request.prompt)}</pre></div>`).join("")}</div>
     </section>`
     : "";
   const backgroundReview = document.background
     ? `<section class="background-section" aria-labelledby="background-title" data-testid="background-review">
-      <div class="section-heading"><div><p class="eyebrow">SCENE / BACKGROUND</p><h2 id="background-title">背景・舞台</h2></div><p>人物の後ろに置く背景板です。掛け合いの空気感と画面比率を生成前に確認します。</p></div>
+      <div class="section-heading"><div><p class="eyebrow">SCENE / BACKGROUND</p><h2 id="background-title">${tr("review.page.background_title")}</h2></div><p>${tr("review.page.background_lede")}</p></div>
       <figure class="background-plate" data-aspect="${escapeAttribute(document.summary.aspect)}">
         <div class="background-frame">${document.background.preview_src
-          ? `<img src="${escapeAttribute(document.background.preview_src)}" alt="${escapeAttribute(document.background.alt ?? "選択された背景画像")}">`
+          ? `<img src="${escapeAttribute(document.background.preview_src)}" alt="${escapeAttribute(document.background.alt ?? tr("review.page.background_alt"))}">`
           : `<div class="background-placeholder">BACKGROUND IMAGE</div>`}</div>
-        <figcaption><p class="eyebrow">SELECTED BACKGROUND</p><h3>${escapeHtml(document.background.alt ?? document.background.id)}</h3><p>この画像が掛け合い全体の舞台として使われます。</p><dl><div><dt>ASSET ID</dt><dd>${escapeHtml(document.background.id)}</dd></div><div><dt>ASPECT</dt><dd>${escapeHtml(document.summary.aspect)}</dd></div></dl></figcaption>
+        <figcaption><p class="eyebrow">SELECTED BACKGROUND</p><h3>${escapeHtml(document.background.alt ?? document.background.id)}</h3><p>${tr("review.page.background_caption")}</p><dl><div><dt>ASSET ID</dt><dd>${escapeHtml(document.background.id)}</dd></div><div><dt>ASPECT</dt><dd>${escapeHtml(document.summary.aspect)}</dd></div></dl></figcaption>
       </figure>
     </section>`
     : "";
 
   return `<!doctype html>
-<html lang="ja">
+<html lang="${escapeAttribute(lang)}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src &#39;none&#39;; img-src &#39;self&#39; data:; media-src &#39;self&#39;; style-src &#39;unsafe-inline&#39;;">
   <title>${escapeHtml(document.summary.title)} · Creative Review</title>
-  <style>${reviewStyles()}</style>
+  <style>${reviewStyles(tr)}</style>
 </head>
 <body>
-  <a class="skip-link" href="#main">内容へ移動</a>
+  <a class="skip-link" href="#main">${tr("review.page.skip")}</a>
   <main id="main" data-design="joinery-review" data-material="hinoki-yakisugi" data-aspect="${escapeAttribute(document.summary.aspect)}">
     <header class="hero">
-      <nav class="review-nav" aria-label="レビュー内ナビゲーション">
+      <nav class="review-nav" aria-label="${tr("review.page.nav_label")}">
         <a class="wordmark" href="#main"><span class="joinery-mark" aria-hidden="true"><i></i><i></i></span><span class="wordmark-copy">TSUGITE<small>CREATIVE REVIEW</small></span></a>
-        <div>${document.composition ? `<a href="#composition-title">構成案</a>` : ""}${document.background ? `<a href="#background-title">背景</a>` : ""}${document.audio ? `<a href="#audio-title">音響</a>` : ""}${document.generation_audio_requests?.length ? `<a href="#generation-audio-title">生成音声</a>` : ""}${document.h3_compilations?.length ? `<a href="#h3-title">H3プロンプト</a>` : ""}${document.video_prompt_plans?.length ? `<a href="#video-prompt-plans-title">V2プロンプト</a>` : ""}<a href="#storyboard-title">絵コンテ</a><a href="#motion-title">アニメーション</a><a href="#characters-title">キャラクター</a><a href="#details-title">カット詳細</a><a href="#decision-title">最終確認</a></div>
+        <div>${document.composition ? `<a href="#composition-title">${tr("review.page.nav_composition")}</a>` : ""}${document.background ? `<a href="#background-title">${tr("review.page.nav_background")}</a>` : ""}${document.audio ? `<a href="#audio-title">${tr("review.page.nav_audio")}</a>` : ""}${document.generation_audio_requests?.length ? `<a href="#generation-audio-title">${tr("review.page.nav_speech")}</a>` : ""}${document.h3_compilations?.length ? `<a href="#h3-title">${tr("review.page.nav_h3")}</a>` : ""}${document.video_prompt_plans?.length ? `<a href="#video-prompt-plans-title">${tr("review.page.nav_v2")}</a>` : ""}<a href="#storyboard-title">${tr("review.page.nav_storyboard")}</a><a href="#motion-title">${tr("review.page.nav_motion")}</a><a href="#characters-title">${tr("review.page.nav_characters")}</a><a href="#details-title">${tr("review.page.nav_details")}</a><a href="#decision-title">${tr("review.page.nav_decision")}</a></div>
       </nav>
       <div class="hero-content">
         <div class="hero-joinery" aria-hidden="true"><span></span><i></i></div>
-        <div class="hero-copy"><p class="eyebrow">映像制作の事前確認 / CREATIVE REVIEW</p><h1>${formatDisplayTitle(document.summary.title)}</h1><p class="lede">生成に進む前に、映像の流れ、動き、登場人物の一貫性、制作条件を順番に確認します。</p></div>
-        <div class="review-progress" data-testid="review-progress"><span class="status-light"></span><div><small>REVIEW ORDER</small><strong>構成 → 動き → 条件</strong><p>承認判断はすべて確認した後に表示します</p></div></div>
+        <div class="hero-copy"><p class="eyebrow">${tr("review.page.hero_eyebrow")}</p><h1>${formatDisplayTitle(document.summary.title)}</h1><p class="lede">${tr("review.page.hero_lede")}</p></div>
+        <div class="review-progress" data-testid="review-progress"><span class="status-light"></span><div><small>REVIEW ORDER</small><strong>${tr("review.page.progress_order")}</strong><p>${tr("review.page.progress_note")}</p></div></div>
       </div>
       <dl class="metrics">
-        <div><dt>目標尺</dt><dd>${formatSeconds(document.summary.target_duration_seconds)}</dd></div>
-        <div><dt>絵コンテ尺</dt><dd>${formatSeconds(document.summary.storyboard_duration_seconds)}</dd></div>
-        <div><dt>画面比率</dt><dd>${escapeHtml(document.summary.aspect)}</dd></div>
-        <div><dt>予想される生成費用</dt><dd>${formatNumber(document.summary.estimated_credits)}</dd></div>
-        <div><dt>編集エンジン</dt><dd>${escapeHtml(document.summary.backend)}</dd></div>
+        <div><dt>${tr("review.page.metric_target")}</dt><dd>${formatSeconds(document.summary.target_duration_seconds, tr)}</dd></div>
+        <div><dt>${tr("review.page.metric_storyboard")}</dt><dd>${formatSeconds(document.summary.storyboard_duration_seconds, tr)}</dd></div>
+        <div><dt>${tr("review.page.metric_aspect")}</dt><dd>${escapeHtml(document.summary.aspect)}</dd></div>
+        <div><dt>${tr("review.page.metric_credits")}</dt><dd>${formatNumber(document.summary.estimated_credits)}</dd></div>
+        <div><dt>${tr("review.page.metric_backend")}</dt><dd>${escapeHtml(document.summary.backend)}</dd></div>
       </dl>
     </header>
     ${warnings}
@@ -2628,26 +2674,26 @@ export function renderReviewHtml(document: ReviewDocument): string {
     ${generationAudioReview}
     ${h3Review}
     ${videoPromptReview}
-    ${productionControlShadow}
+    ${renderProductionControlShadow(document.production_control_shadow, tr)}
     <section class="storyboard-section" aria-labelledby="storyboard-title">
-      <div class="section-heading"><div><p class="eyebrow">SEQUENCE / TIMING</p><h2 id="storyboard-title">映像の流れ</h2></div><p>一枚ずつの材を組むように、左から時間順で構成とテンポを確認します。</p></div>
+      <div class="section-heading"><div><p class="eyebrow">SEQUENCE / TIMING</p><h2 id="storyboard-title">${tr("review.page.storyboard_title")}</h2></div><p>${tr("review.page.storyboard_lede")}</p></div>
       <div class="screening-room">
-        <div class="screening-toolbar"><span>継ぎ手絵コンテ / JOINERY SEQUENCE</span><span>${document.storyboard.length} SHOTS / ${formatSeconds(document.summary.storyboard_duration_seconds)}</span></div>
+        <div class="screening-toolbar"><span>${tr("review.page.storyboard_toolbar")}</span><span>${document.storyboard.length} SHOTS / ${formatSeconds(document.summary.storyboard_duration_seconds, tr)}</span></div>
         <div class="film-strip" data-testid="storyboard-sheet">${storyboard}</div>
         <div class="playback-rail" aria-hidden="true"><span>IN&nbsp; ${formatTime(0)}</span><i></i><span>OUT&nbsp; ${formatTime(document.summary.storyboard_duration_seconds)}</span></div>
       </div>
     </section>
-    ${document.fast_edit ? `<section data-testid="fast-edit-review"><h2>Fast Edit v1</h2><p>${escapeHtml(JSON.stringify(document.fast_edit.global))}</p><table><thead><tr><th>Beat</th><th>時刻</th><th>編集判断</th></tr></thead><tbody>${document.fast_edit.beats.map(beat => `<tr><td>${escapeHtml(beat.id)}</td><td>${formatSeconds(beat.start)}–${formatSeconds(beat.end)}</td><td>${escapeHtml(JSON.stringify(beat.edit))}</td></tr>`).join("")}</tbody></table></section>` : ""}
-    ${motionReview}
+    ${document.fast_edit ? `<section data-testid="fast-edit-review"><h2>Fast Edit v1</h2><p>${escapeHtml(JSON.stringify(document.fast_edit.global))}</p><table><thead><tr><th>Beat</th><th>${tr("review.page.fast_edit_time")}</th><th>${tr("review.page.fast_edit_decision")}</th></tr></thead><tbody>${document.fast_edit.beats.map(beat => `<tr><td>${escapeHtml(beat.id)}</td><td>${formatSeconds(beat.start, tr)}–${formatSeconds(beat.end, tr)}</td><td>${escapeHtml(JSON.stringify(beat.edit))}</td></tr>`).join("")}</tbody></table></section>` : ""}
+    ${renderMotionReview(document, tr)}
     <section aria-labelledby="characters-title">
-      <div class="section-heading"><div><p class="eyebrow">CONTINUITY</p><h2 id="characters-title">キャラクターシート</h2></div><p>表情と役割を生成前に固定します。</p></div>
+      <div class="section-heading"><div><p class="eyebrow">CONTINUITY</p><h2 id="characters-title">${tr("review.page.characters_title")}</h2></div><p>${tr("review.page.characters_lede")}</p></div>
       <div class="characters">${characters}</div>
     </section>
-    <section class="details-section" aria-labelledby="details-title"><div class="section-heading"><div><p class="eyebrow">SHOT NOTES</p><h2 id="details-title">カット詳細</h2></div></div>${details}</section>
-    <section class="conditions" aria-labelledby="conditions-title"><div class="section-heading"><div><p class="eyebrow">PRODUCTION</p><h2 id="conditions-title">制作条件</h2></div></div><ul>${handoffs}</ul><p>プロンプトガイド: ${document.prompt_guidance.length}件 / 工程: ${document.steps.length}段階</p></section>
+    <section class="details-section" aria-labelledby="details-title"><div class="section-heading"><div><p class="eyebrow">SHOT NOTES</p><h2 id="details-title">${tr("review.page.details_title")}</h2></div></div>${details}</section>
+    <section class="conditions" aria-labelledby="conditions-title"><div class="section-heading"><div><p class="eyebrow">PRODUCTION</p><h2 id="conditions-title">${tr("review.page.conditions_title")}</h2></div></div><ul>${handoffs}</ul><p>${tr("review.page.conditions_counts", { guides: document.prompt_guidance.length, steps: document.steps.length })}</p></section>
     <section class="final-decision" id="decision-title" aria-labelledby="final-decision-heading" data-testid="gate-1-final-decision">
-      <div class="final-decision-copy"><p class="eyebrow">REVIEW COMPLETE</p><h2 id="final-decision-heading">すべて確認した後の最終判断</h2><p>構成、動き、キャラクター、生成条件、音響、実装方法を確認してから選びます。このHTMLは読み取り専用です。</p></div>
-      <aside class="decision"><div class="decision-status"><span></span>FINAL HUMAN CHECKPOINT</div><p class="eyebrow">Gate 1 / FINAL DECISION</p><h3>最終確認</h3><p class="decision-guide">この画面は読み取り専用です。画面から承認はできません。エージェントに「承認」「ここを直したい：〜」「中止」と伝えてください。</p><ul class="decision-choices"><li><i class="approve-dot"></i><strong>承認</strong> — この内容で次へ進む</li><li><i class="revise-dot"></i><strong>ここを直したい：〜</strong> — 直したい箇所を具体的に</li><li><i class="abort-dot"></i><strong>中止</strong> — この制作をやめる</li></ul><details class="decision-commands"><summary>詳しい人向け：コマンド</summary><label><i class="approve-dot"></i>承認して進む</label><code>${escapeHtml(document.approval_commands.approve)}</code><label><i class="revise-dot"></i>修正へ戻す</label><code>${escapeHtml(document.approval_commands.revise)}</code><label><i class="abort-dot"></i>中止する</label><code>${escapeHtml(document.approval_commands.abort)}</code></details></aside>
+      <div class="final-decision-copy"><p class="eyebrow">REVIEW COMPLETE</p><h2 id="final-decision-heading">${tr("review.page.decision_heading")}</h2><p>${tr("review.page.decision_lede")}</p></div>
+      <aside class="decision"><div class="decision-status"><span></span>FINAL HUMAN CHECKPOINT</div><p class="eyebrow">Gate 1 / FINAL DECISION</p><h3>${tr("review.page.decision_title")}</h3><p class="decision-guide">${tr("review.page.decision_guide")}</p><ul class="decision-choices"><li><i class="approve-dot"></i><strong>${tr("review.page.choice_approve")}</strong> — ${tr("review.page.choice_approve_help")}</li><li><i class="revise-dot"></i><strong>${tr("review.page.choice_revise")}</strong> — ${tr("review.page.choice_revise_help")}</li><li><i class="abort-dot"></i><strong>${tr("review.page.choice_abort")}</strong> — ${tr("review.page.choice_abort_help")}</li></ul><details class="decision-commands"><summary>${tr("review.page.commands_summary")}</summary><label><i class="approve-dot"></i>${tr("review.page.command_approve")}</label><code>${escapeHtml(document.approval_commands.approve)}</code><label><i class="revise-dot"></i>${tr("review.page.command_revise")}</label><code>${escapeHtml(document.approval_commands.revise)}</code><label><i class="abort-dot"></i>${tr("review.page.command_abort")}</label><code>${escapeHtml(document.approval_commands.abort)}</code></details></aside>
     </section>
     <footer><span>${escapeHtml(document.run_id)}</span><span>ReviewDocument v${document.schema_version}</span></footer>
   </main>
@@ -2666,12 +2712,13 @@ function renderAudioTrack(
     volume?: number;
     mode?: "generate" | "retrieve";
     query?: string;
-  }
+  },
+  tr: Translator = reviewTranslator()
 ): string {
-  return `<article class="audio-track"><p class="eyebrow">${kind}</p><h3>${escapeHtml(track.id)}</h3><p>${escapeHtml(track.prompt)}</p><dl><div><dt>START</dt><dd>${formatSeconds(track.start)}</dd></div>${track.end === undefined ? "" : `<div><dt>END</dt><dd>${formatSeconds(track.end)}</dd></div>`}<div><dt>VOLUME</dt><dd>${track.volume === undefined ? "default" : formatNumber(track.volume)}</dd></div>${track.mode ? `<div><dt>MODE</dt><dd>${escapeHtml(track.mode)}</dd></div>` : ""}${track.query ? `<div><dt>QUERY</dt><dd>${escapeHtml(track.query)}</dd></div>` : ""}</dl></article>`;
+  return `<article class="audio-track"><p class="eyebrow">${kind}</p><h3>${escapeHtml(track.id)}</h3><p>${escapeHtml(track.prompt)}</p><dl><div><dt>START</dt><dd>${formatSeconds(track.start, tr)}</dd></div>${track.end === undefined ? "" : `<div><dt>END</dt><dd>${formatSeconds(track.end, tr)}</dd></div>`}<div><dt>VOLUME</dt><dd>${track.volume === undefined ? "default" : formatNumber(track.volume)}</dd></div>${track.mode ? `<div><dt>MODE</dt><dd>${escapeHtml(track.mode)}</dd></div>` : ""}${track.query ? `<div><dt>QUERY</dt><dd>${escapeHtml(track.query)}</dd></div>` : ""}</dl></article>`;
 }
 
-function renderH3Review(compilations: H3Compilation[] | undefined): string {
+function renderH3Review(compilations: H3Compilation[] | undefined, tr: Translator = reviewTranslator()): string {
   if (!compilations || compilations.length === 0) return "";
   const cards = compilations.map((compilation) => {
     const errors = compilation.validation.errors.map((issue) =>
@@ -2703,12 +2750,12 @@ function renderH3Review(compilations: H3Compilation[] | undefined): string {
     </article>`;
   }).join("");
   return `<section class="h3-section" aria-labelledby="h3-title" data-testid="h3-review">
-    <div class="section-heading"><div><p class="eyebrow">H3 PROMPT DIRECTOR</p><h2 id="h3-title">H3プロンプト</h2></div><p>Gate 1 前に、Creative IR から確定した canonical / adapter プロンプトと検証結果・lineage を確認します。</p></div>
+    <div class="section-heading"><div><p class="eyebrow">H3 PROMPT DIRECTOR</p><h2 id="h3-title">${tr("review.page.h3_title")}</h2></div><p>${tr("review.page.h3_lede")}</p></div>
     <div class="h3-cards">${cards}</div>
   </section>`;
 }
 
-function renderVideoPromptReview(plans: VideoPromptReviewProjection[] | undefined): string {
+function renderVideoPromptReview(plans: VideoPromptReviewProjection[] | undefined, tr: Translator = reviewTranslator()): string {
   if (!plans || plans.length === 0) return "";
   const cards = plans.map((plan, index) => {
     const compilation = plan.compilation;
@@ -2720,22 +2767,22 @@ function renderVideoPromptReview(plans: VideoPromptReviewProjection[] | undefine
       <dl class="h3-lineage"><div><dt>COMPILATION DIGEST</dt><dd><code>${escapeHtml(compilation.compilation_digest)}</code></dd></div><div><dt>REQUEST IDENTITY</dt><dd>${escapeHtml(plan.request_identity.authoring_surface)} / ${escapeHtml(plan.request_identity.authoring_schema)} / ${escapeHtml(plan.request_identity.compiler_workflow)}</dd></div><div><dt>ROUTE</dt><dd>${escapeHtml(compilation.route.ir_model)} via ${escapeHtml(compilation.route.adapter_id)} / ${escapeHtml(compilation.route.mode_binding)}</dd></div><div><dt>MODEL PROFILE</dt><dd><code>${escapeHtml(compilation.model_profile_digest)}</code></dd></div><div><dt>CONNECTION CAPABILITY</dt><dd><code>${escapeHtml(compilation.connection_capability_digest)}</code></dd></div><div><dt>ADAPTER CAPABILITY</dt><dd><code>${escapeHtml(compilation.adapter_capability_digest)}</code></dd></div><div><dt>GRAMMAR PROFILE</dt><dd>${compilation.grammar_profile_digest ? `<code>${escapeHtml(compilation.grammar_profile_digest)}</code>` : "not applicable"}</dd></div>${compilation.generation_unit_source_digest ? `<div><dt>GENERATION UNIT SOURCE</dt><dd><code>${escapeHtml(compilation.generation_unit_source_digest)}</code></dd></div>` : ""}</dl>
       ${validationIssues ? `<div class="h3-issues"><h4>validation</h4><ul>${validationIssues}</ul></div>` : ""}
       <div class="h3-prompts"><div><h4>canonical prompt</h4><pre>${escapeHtml(compilation.canonical_prompt)}</pre></div><div><h4>adapter prompt</h4><pre>${escapeHtml(compilation.adapter_prompt)}</pre></div></div>
-      <details class="video-prompt-contract"><summary>effective contract（再検証対象）</summary><pre>${escapeHtml(JSON.stringify(compilation.effective_contract, null, 2))}</pre></details>
+      <details class="video-prompt-contract"><summary>${tr("review.page.v2_contract")}</summary><pre>${escapeHtml(JSON.stringify(compilation.effective_contract, null, 2))}</pre></details>
     </article>`;
   }).join("");
-  return `<section class="video-prompt-section" aria-labelledby="video-prompt-plans-title" data-testid="video-prompt-plans"><div class="section-heading"><div><p class="eyebrow">VIDEO PROMPT / V2 SINGLE COMPILER</p><h2 id="video-prompt-plans-title">V2プロンプト・実効契約</h2></div><p>canonical / adapter、route、profile、grammar、effective contract、compilation digestを読み取り専用で固定します。secret、raw provider response、absolute pathは表示しません。</p></div><div class="h3-cards">${cards}</div><p class="utility">Gate 1 subject digest: <code>${escapeHtml(digest(plans))}</code></p></section>`;
+  return `<section class="video-prompt-section" aria-labelledby="video-prompt-plans-title" data-testid="video-prompt-plans"><div class="section-heading"><div><p class="eyebrow">VIDEO PROMPT / V2 SINGLE COMPILER</p><h2 id="video-prompt-plans-title">${tr("review.page.v2_title")}</h2></div><p>${tr("review.page.v2_lede")}</p></div><div class="h3-cards">${cards}</div><p class="utility">Gate 1 subject digest: <code>${escapeHtml(digest(plans))}</code></p></section>`;
 }
 
-function reviewStyles(): string {
+function reviewStyles(tr: Translator = reviewTranslator()): string {
   return `
 .frame video{display:block;width:100%;height:100%;object-fit:cover;background:#000}
 .h3-section{margin-top:66px}.h3-cards{display:grid;gap:18px}.h3-card{color:var(--ink);background:var(--kinari);border:1px solid #a58b65;border-top:4px solid var(--koke);padding:20px 22px;box-shadow:6px 7px 0 rgba(0,0,0,.12)}.h3-card header{display:flex;flex-wrap:wrap;align-items:baseline;gap:12px 18px;margin-bottom:14px}.h3-card h3{font-family:"Hiragino Mincho ProN","Yu Mincho",serif;font-size:1.35rem;margin:0}.h3-status{margin:0;font:700 .58rem SFMono-Regular,Consolas,monospace;letter-spacing:.08em;color:var(--approve)}.h3-status[data-ok="false"]{color:var(--danger)}.h3-lineage{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 18px;margin:0 0 16px}.h3-lineage div{min-width:0;padding:8px 10px;background:#e8dcc4;border:1px solid #c5ad86}.h3-lineage dt{font:700 .5rem SFMono-Regular,Consolas,monospace;color:var(--urushi);letter-spacing:.08em}.h3-lineage dd{margin:5px 0 0;font:700 .58rem SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}.h3-lineage code{font:inherit}.h3-issues{margin:0 0 14px;padding:12px 14px;border:1px solid #c5ad86;background:#efe3cb}.h3-issues h4{margin:0 0 6px;font:700 .58rem SFMono-Regular,Consolas,monospace;letter-spacing:.1em;color:var(--urushi)}.h3-issues ul{margin:0;padding-left:18px;font-size:.72rem}.h3-issues code{font:700 .62rem SFMono-Regular,Consolas,monospace}.h3-errors{border-left:4px solid var(--danger)}.h3-warnings{border-left:4px solid var(--shinchu)}.h3-prompts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.h3-prompts h4{margin:0 0 6px;font:700 .55rem SFMono-Regular,Consolas,monospace;letter-spacing:.1em;color:var(--urushi)}.h3-prompts pre{margin:0;max-height:280px;overflow:auto;padding:12px;background:#1f231f;color:#f0e7d6;border:1px solid #3a3f38;font:600 .62rem/1.55 SFMono-Regular,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere}@media(max-width:800px){.h3-lineage,.h3-prompts{grid-template-columns:1fr}}
 .audio-section{margin-top:66px}.audio-policy{color:var(--ink);background:var(--hinoki);border:1px solid #a58b65;padding:18px 22px}.audio-policy dl{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;margin:0}.audio-policy dl div{border-left:4px solid var(--urushi);padding-left:12px}.audio-policy dt{font:700 .52rem SFMono-Regular,Consolas,monospace;color:var(--urushi);letter-spacing:.1em}.audio-policy dd{margin:6px 0 0;font:700 .7rem SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}.audio-policy>p{margin:14px 0 0}.audio-tracks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:14px}.audio-track{color:var(--ink);background:var(--kinari);border:1px solid #a58b65;border-top:4px solid var(--shinchu);padding:18px}.audio-track h3{font-family:"Hiragino Mincho ProN","Yu Mincho",serif;font-size:1.15rem;margin:5px 0}.audio-track p{font-size:.75rem;line-height:1.6}.audio-track dl{display:flex;flex-wrap:wrap;gap:12px;margin:14px 0 0}.audio-track dl div{min-width:90px}.audio-track dt{font:700 .5rem SFMono-Regular,Consolas,monospace;color:var(--urushi)}.audio-track dd{margin:4px 0 0;font:700 .62rem SFMono-Regular,Consolas,monospace}
 .reference-images{margin-top:20px;padding-top:13px;border-top:1px solid #d1bfa0}.reference-images>div{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.reference-images figure{min-width:0;margin:0;background:#e2d3b8;border:1px solid #c5ad86}.reference-images img{display:block;width:100%;aspect-ratio:16/9;object-fit:contain;background:#d5c4a6}.reference-images figcaption{padding:6px 7px;font:700 .5rem SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}
 :root{color-scheme:dark;--yakisugi:#171b18;--sumi:#20231e;--sumi-soft:#2d3029;--hinoki:#e7d4ae;--kinari:#f4eddf;--mokume:#c8a878;--urushi:#a63d2f;--shinchu:#b89456;--koke:#5b6655;--ink:#27251f;--ink-soft:#756b5c;--rule:rgba(75,58,36,.25);--light-rule:rgba(244,237,223,.16);--approve:#47725a;--danger:#9e3f35;font-family:"Hiragino Sans","Yu Gothic UI","Yu Gothic",system-ui,sans-serif;line-height:1.68;color:var(--kinari);background:var(--yakisugi)}
-*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:24px}body{min-height:100vh;margin:0;background-color:var(--yakisugi);background-image:linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px),repeating-linear-gradient(96deg,transparent 0 39px,rgba(200,168,120,.025) 40px,transparent 43px)}body::before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.38;background:radial-gradient(circle at 12% 0,rgba(184,148,86,.12),transparent 32%),radial-gradient(circle at 91% 18%,rgba(166,61,47,.08),transparent 24%)}main{width:min(1460px,calc(100% - 48px));margin:0 auto;padding:28px 0 38px}.skip-link{position:fixed;left:12px;top:-60px;background:var(--urushi);color:#fff;padding:10px 14px;z-index:20}.skip-link:focus{top:12px}a{color:inherit}a:focus-visible,summary:focus-visible{outline:3px solid var(--shinchu);outline-offset:3px}.hero{position:relative;overflow:hidden;background-color:var(--hinoki);background-image:repeating-linear-gradient(2deg,transparent 0 22px,rgba(92,61,30,.035) 23px,transparent 25px),linear-gradient(112deg,rgba(255,255,255,.46),transparent 48%);color:var(--ink);border:1px solid #ad8f62;box-shadow:0 26px 70px rgba(0,0,0,.3)}.review-nav{position:relative;z-index:4;min-height:70px;display:flex;align-items:center;justify-content:space-between;gap:28px;padding:0 34px;color:var(--kinari);background:var(--sumi);border-bottom:1px solid #080a08;font:700 .65rem/1 SFMono-Regular,Consolas,monospace;letter-spacing:.08em}.review-nav::after{content:"";position:absolute;left:0;right:0;bottom:-3px;height:3px;background:linear-gradient(90deg,var(--urushi) 0 22%,var(--shinchu) 22% 31%,transparent 31%)}.review-nav a{text-decoration:none}.review-nav>div{display:flex;align-items:center;gap:27px;color:#cfc4b2}.review-nav>div a{padding:27px 0 24px;border-bottom:2px solid transparent}.review-nav>div a:hover{color:#fff;border-bottom-color:var(--shinchu)}.wordmark{display:flex;align-items:center;gap:14px}.wordmark-copy{display:flex;flex-direction:column;gap:4px;letter-spacing:.18em}.wordmark-copy small{font-size:.47rem;letter-spacing:.13em;color:#9d9385}.joinery-mark{position:relative;display:block;width:42px;height:30px}.joinery-mark i{position:absolute;display:block;width:27px;height:9px;background:var(--hinoki)}.joinery-mark i:first-child{left:0;top:3px;clip-path:polygon(0 0,100% 0,100% 45%,72% 45%,72% 100%,0 100%)}.joinery-mark i:last-child{right:0;bottom:3px;clip-path:polygon(28% 0,100% 0,100% 100%,0 100%,0 55%,28% 55%)}.joinery-mark::before,.joinery-mark::after{content:"";position:absolute;z-index:2;width:11px;height:11px;background:var(--urushi)}.joinery-mark::before{left:14px;top:8px}.joinery-mark::after{right:14px;bottom:8px}.hero-content{position:relative;isolation:isolate;display:grid;grid-template-columns:minmax(0,1fr) 270px;gap:80px;align-items:end;min-height:410px;padding:76px 58px 68px}.hero-content::before{content:"見立てて、組んで、確かめる。";position:absolute;right:23px;top:30px;z-index:2;writing-mode:vertical-rl;font-family:"Hiragino Mincho ProN","Yu Mincho",serif;font-size:.7rem;letter-spacing:.22em;color:rgba(39,37,31,.55)}.hero-copy,.gate-status{position:relative;z-index:3}.hero-copy{max-width:760px}.hero-joinery{position:absolute;z-index:1;left:55%;top:0;width:190px;height:100%;transform:translateX(-50%);opacity:.9;filter:drop-shadow(0 8px 9px rgba(75,48,19,.18));animation:set-joinery 800ms cubic-bezier(.2,.8,.2,1) both}.hero-joinery::before,.hero-joinery::after{content:"";position:absolute;left:0;width:100%;height:51%;background:linear-gradient(90deg,#bc9865,#e6c994 46%,#c8a36d);border-inline:1px solid rgba(89,58,28,.18)}.hero-joinery::before{top:-1px;clip-path:polygon(0 0,100% 0,100% 66%,70% 66%,70% 100%,30% 100%,30% 66%,0 66%)}.hero-joinery::after{bottom:-1px;clip-path:polygon(30% 0,70% 0,70% 34%,100% 34%,100% 100%,0 100%,0 34%,30% 34%)}.hero-joinery span{position:absolute;left:57px;top:calc(50% - 20px);z-index:2;width:76px;height:40px;background:var(--urushi);box-shadow:inset 0 0 0 1px rgba(70,16,11,.32)}.hero-joinery i{position:absolute;left:94px;top:0;z-index:3;width:1px;height:100%;background:rgba(76,49,23,.28)}@keyframes set-joinery{from{opacity:0;transform:translate(-50%,-18px)}to{opacity:.9;transform:translate(-50%,0)}}.eyebrow{font:700 .63rem/1.2 SFMono-Regular,Consolas,monospace;letter-spacing:.16em;color:var(--urushi);margin:0 0 14px}.hero h1{max-width:720px;font-family:"Hiragino Mincho ProN","Yu Mincho","YuMincho",serif;font-size:clamp(3rem,5.7vw,5.55rem);font-weight:600;line-height:1.04;letter-spacing:-.055em;margin:.06em 0 .28em;text-wrap:balance}.lede{max-width:55ch;margin:0;color:#685d4f;font-size:.9rem}.gate-status{display:grid;grid-template-columns:9px 1fr;gap:13px;align-items:start;color:var(--kinari);background:rgba(30,32,27,.96);border-top:4px solid var(--urushi);padding:22px 21px 20px;box-shadow:9px 10px 0 rgba(115,80,43,.16)}.status-light{width:8px;height:8px;margin-top:4px;background:var(--shinchu);border-radius:50%;box-shadow:0 0 0 4px rgba(184,148,86,.13)}.gate-status small{display:block;font:700 .56rem SFMono-Regular,Consolas,monospace;letter-spacing:.11em;color:#a89e8f}.gate-status strong{display:block;font-family:"Hiragino Mincho ProN","Yu Mincho",serif;font-size:2.05rem;font-weight:600;line-height:1.1;margin:8px 0 3px}.gate-status p{margin:0;color:#bcb09f;font-size:.72rem}.metrics{display:grid;grid-template-columns:repeat(5,1fr);margin:0;background:#d8bd8f;border-top:1px solid #a8885a}.metrics div{position:relative;padding:19px 22px 21px;border-right:1px solid rgba(71,49,25,.23);background:linear-gradient(94deg,rgba(255,255,255,.18),transparent)}.metrics div::before{content:"";position:absolute;left:0;top:0;width:28px;height:3px;background:var(--urushi);transform:scaleX(0);transform-origin:left;transition:transform .22s ease}.metrics div:hover::before{transform:scaleX(1)}.metrics div:last-child{border:0}.metrics dt{font-size:.61rem;color:#6d5d49}.metrics dd{font:700 .92rem/1.25 SFMono-Regular,Consolas,monospace;margin:5px 0 0;color:var(--ink);overflow-wrap:anywhere}.warnings{color:var(--ink);border:1px solid #b69663;border-left:5px solid var(--urushi);background:var(--hinoki);padding:17px 21px;margin:24px 0 62px}.warnings h2{font-family:"Hiragino Mincho ProN","Yu Mincho",serif;font-size:1rem;margin:0}.warnings ul{margin:5px 0 0;padding-left:19px;font-size:.82rem}.section-heading{position:relative;display:flex;align-items:end;justify-content:space-between;gap:28px;margin:0 0 23px;padding:0 0 0 24px}.section-heading::before{content:"";position:absolute;left:0;top:3px;bottom:3px;width:7px;background:var(--urushi)}.section-heading::after{content:"";position:absolute;left:9px;top:3px;bottom:3px;width:2px;background:var(--shinchu)}.section-heading h2{font-family:"Hiragino Mincho ProN","Yu Mincho",serif;font-size:clamp(2rem,3.2vw,3rem);font-weight:600;line-height:1.1;letter-spacing:-.04em;margin:0;color:var(--kinari)}.section-heading>p{color:#b3aa9d;max-width:44ch;margin:0;font-size:.8rem}section{margin:0 0 82px}.storyboard-section{margin-top:66px}.screening-room{position:relative;color:var(--ink);background-color:var(--mokume);background-image:repeating-linear-gradient(1deg,transparent 0 27px,rgba(87,56,25,.045) 28px,transparent 30px),linear-gradient(105deg,rgba(255,255,255,.3),transparent 48%);padding:0 22px 22px;border:1px solid #8f7047;box-shadow:0 20px 55px rgba(0,0,0,.26)}.screening-room::before,.screening-room::after{content:"";position:absolute;top:-10px;width:74px;height:10px;background:var(--hinoki)}.screening-room::before{left:22%}.screening-room::after{right:22%}.screening-toolbar{height:53px;display:flex;align-items:center;justify-content:space-between;color:#5e4e3b;font:700 .58rem/1 SFMono-Regular,Consolas,monospace;letter-spacing:.11em;border-bottom:1px solid rgba(73,50,26,.26)}.film-strip{position:relative;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;padding:34px 0 17px}.film-strip::before{content:"";position:absolute;left:0;right:0;top:15px;height:9px;background:linear-gradient(180deg,#775435,#a9814f);box-shadow:inset 0 2px rgba(255,255,255,.16)}.shot{position:relative;min-width:0;margin:0;background:var(--kinari);border:1px solid #9d7b4d;box-shadow:5px 7px 0 rgba(76,51,25,.18);transition:transform .2s ease,box-shadow .2s ease}.shot:hover{transform:translateY(-3px);box-shadow:7px 11px 0 rgba(76,51,25,.15)}.shot::before,.shot::after{content:"";position:absolute;z-index:2;top:-19px;width:22px;height:13px;background:#775435}.shot::before{left:22px}.shot::after{right:22px}.shot-index{position:absolute;left:12px;top:-25px;z-index:3;display:flex;align-items:baseline;gap:4px;height:29px;padding:5px 9px;background:var(--urushi);color:#fff;border:1px solid #77271f;text-decoration:none;font-family:SFMono-Regular,Consolas,monospace;box-shadow:2px 2px 0 rgba(68,35,21,.25)}.shot-index b{font-size:.78rem;line-height:1}.shot-index small{font-size:.44rem;letter-spacing:.09em}.shot-meta{display:flex;justify-content:space-between;gap:10px;padding:10px 12px;color:#756552;font:700 .55rem/1 SFMono-Regular,Consolas,monospace;border-bottom:1px solid #d3c3a6;text-transform:uppercase}.frame{aspect-ratio:16/9;background:#d5c4a6;overflow:hidden;border-bottom:1px solid #c8b798}.frame img{display:block;width:100%;height:100%;object-fit:contain;background:#e5dac6}.wireframe{height:100%;display:flex;flex-direction:column;justify-content:space-between;padding:11%;background:linear-gradient(135deg,#d1b98f,#eee2ca);border:7px solid rgba(255,255,255,.22)}.wireframe span{font:700 .55rem SFMono-Regular,Consolas,monospace;color:#756552}.wireframe strong{max-width:19ch;font-family:"Hiragino Mincho ProN","Yu Mincho",serif;font-size:clamp(.92rem,1.3vw,1.16rem);font-weight:600;line-height:1.25}.shot figcaption{padding:16px 15px 17px;min-height:142px}.shot figcaption small{display:block;color:var(--urushi);font:700 .52rem SFMono-Regular,Consolas,monospace;letter-spacing:.12em}.shot figcaption strong{display:block;font-family:"Hiragino Mincho ProN","Yu Mincho",serif;font-size:1rem;line-height:1.38;margin:7px 0}.shot figcaption p{font-size:.7rem;line-height:1.65;color:#766b5c;margin:9px 0 0}.duration-track{position:relative;height:25px;border-top:1px solid #d3c3a6;background:#ded0b8;overflow:hidden}.duration-track span{display:block;height:100%;background:var(--urushi);opacity:.94}.duration-track b{position:absolute;right:8px;top:4px;font:700 .55rem SFMono-Regular,Consolas,monospace;color:var(--ink);mix-blend-mode:multiply}.playback-rail{display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:center;color:#66533d;font:700 .53rem SFMono-Regular,Consolas,monospace;letter-spacing:.06em}.playback-rail i{height:3px;background:linear-gradient(90deg,var(--urushi),#725135 48%,#725135 52%,var(--shinchu))}.characters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.character-card{display:grid;grid-template-columns:180px 1fr;color:var(--ink);background:var(--kinari);border:1px solid #a58b65;border-top:4px solid var(--character-accent);padding:17px;gap:24px;box-shadow:6px 7px 0 rgba(0,0,0,.15)}.character-image{aspect-ratio:1;display:grid;place-items:center;background-color:#d8c5a4;background-image:linear-gradient(90deg,transparent 49%,rgba(73,54,31,.13) 50%,transparent 51%),linear-gradient(transparent 49%,rgba(73,54,31,.13) 50%,transparent 51%);background-size:34px 34px;overflow:hidden}.character-image img{max-width:100%;max-height:100%;object-fit:contain}.character-placeholder{font:700 .58rem SFMono-Regular,Consolas,monospace;color:var(--ink-soft)}.character-card h3{font-family:"Hiragino Mincho ProN","Yu Mincho",serif;font-size:1.7rem;font-weight:600;line-height:1.2;margin:0}.pose-list{display:flex;flex-wrap:wrap;gap:7px;list-style:none;padding:0;margin-top:18px}.pose-list li{font:700 .58rem SFMono-Regular,Consolas,monospace;background:#e2d3b8;border:1px solid #c5ad86;padding:4px 8px}.empty{color:var(--ink);background:var(--kinari);padding:23px;border:1px dashed #a58b65}.review-layout{display:grid;grid-template-columns:minmax(0,2fr) minmax(330px,1fr);gap:34px;align-items:start}.review-layout>section{margin:0}.shot-detail{color:var(--ink);background:var(--kinari);border:1px solid #a58b65;border-bottom:0}.shot-detail:last-child{border-bottom:1px solid #a58b65}.shot-detail summary{display:grid;grid-template-columns:92px 1fr auto;gap:12px;align-items:center;min-height:63px;padding:11px 17px;cursor:pointer;font-weight:700;font-size:.86rem}.shot-detail summary:hover{background:#e9dcc5}.shot-detail summary span,.shot-detail summary time{font:700 .59rem SFMono-Regular,Consolas,monospace;color:#756552}.shot-detail summary span{color:var(--urushi)}.detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:28px;padding:5px 21px 26px;border-top:1px solid #d1bfa0}.detail-grid h3{font-size:.64rem;letter-spacing:.1em;text-transform:uppercase;color:var(--urushi)}.utility{font-family:SFMono-Regular,Consolas,monospace;font-size:.65rem}.muted{color:var(--ink-soft)}.decision{position:sticky;top:18px;color:var(--kinari);background:var(--sumi);padding:28px 26px 29px;border:1px solid #494439;border-top:6px solid var(--urushi);box-shadow:10px 12px 0 rgba(0,0,0,.19)}.decision::after{content:"要";position:absolute;right:22px;top:20px;display:grid;place-items:center;width:40px;height:40px;border:1px solid rgba(166,61,47,.65);color:var(--urushi);font-family:"Hiragino Mincho ProN","Yu Mincho",serif;font-size:1.2rem;transform:rotate(-4deg)}.decision-status{display:flex;align-items:center;gap:8px;color:#aaa091;font:700 .52rem SFMono-Regular,Consolas,monospace;letter-spacing:.11em;margin-bottom:26px}.decision-status span{width:7px;height:7px;border-radius:50%;background:var(--shinchu)}.decision h2{max-width:10ch;font-family:"Hiragino Mincho ProN","Yu Mincho",serif;font-size:1.85rem;font-weight:600;line-height:1.23;margin:0}.decision>p:not(.eyebrow){color:#bdb2a2;font-size:.76rem}.decision label{display:flex;align-items:center;gap:8px;font-size:.67rem;margin:18px 0 6px;color:#d2c8b8}.decision label i{width:7px;height:7px;border-radius:50%}.approve-dot{background:var(--approve)}.revise-dot{background:var(--shinchu)}.abort-dot{background:var(--danger)}.decision code{display:block;color:#2e281f;background:var(--hinoki);border:1px solid #987a50;border-left:4px solid var(--shinchu);padding:10px 11px;overflow-wrap:anywhere;font-size:.56rem;line-height:1.55}.decision-guide{margin:14px 0 0;color:#bdb2a2;font-size:.76rem;line-height:1.7}.decision-choices{list-style:none;margin:16px 0 0;padding:0}.decision-choices li{display:flex;align-items:flex-start;gap:8px;margin:10px 0;color:#d2c8b8;font-size:.74rem;line-height:1.5}.decision-choices i{width:7px;height:7px;border-radius:50%;margin-top:7px;flex:0 0 auto}.decision-commands{margin-top:18px;border-top:1px solid #494439;padding-top:12px}.decision-commands summary{cursor:pointer;color:#d2c8b8;font:700 .67rem/1.4 SFMono-Regular,Consolas,monospace}.decision-commands[open] summary{margin-bottom:8px}.conditions{margin-top:80px;color:var(--ink);background:var(--hinoki);border:1px solid #aa8c60;padding:27px;background-image:linear-gradient(100deg,rgba(255,255,255,.22),transparent)}.conditions .section-heading h2{color:var(--ink)}.conditions .section-heading>p{color:var(--ink-soft)}.conditions ul{padding-left:20px}.conditions>p{color:var(--ink-soft);font-size:.75rem}footer{display:flex;justify-content:space-between;border-top:1px solid var(--light-rule);padding-top:18px;color:#968e82;font:700 .58rem SFMono-Regular,Consolas,monospace}
+*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:24px}body{min-height:100vh;margin:0;background-color:var(--yakisugi);background-image:linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px),repeating-linear-gradient(96deg,transparent 0 39px,rgba(200,168,120,.025) 40px,transparent 43px)}body::before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.38;background:radial-gradient(circle at 12% 0,rgba(184,148,86,.12),transparent 32%),radial-gradient(circle at 91% 18%,rgba(166,61,47,.08),transparent 24%)}main{width:min(1460px,calc(100% - 48px));margin:0 auto;padding:28px 0 38px}.skip-link{position:fixed;left:12px;top:-60px;background:var(--urushi);color:#fff;padding:10px 14px;z-index:20}.skip-link:focus{top:12px}a{color:inherit}a:focus-visible,summary:focus-visible{outline:3px solid var(--shinchu);outline-offset:3px}.hero{position:relative;overflow:hidden;background-color:var(--hinoki);background-image:repeating-linear-gradient(2deg,transparent 0 22px,rgba(92,61,30,.035) 23px,transparent 25px),linear-gradient(112deg,rgba(255,255,255,.46),transparent 48%);color:var(--ink);border:1px solid #ad8f62;box-shadow:0 26px 70px rgba(0,0,0,.3)}.review-nav{position:relative;z-index:4;min-height:70px;display:flex;align-items:center;justify-content:space-between;gap:28px;padding:0 34px;color:var(--kinari);background:var(--sumi);border-bottom:1px solid #080a08;font:700 .65rem/1 SFMono-Regular,Consolas,monospace;letter-spacing:.08em}.review-nav::after{content:"";position:absolute;left:0;right:0;bottom:-3px;height:3px;background:linear-gradient(90deg,var(--urushi) 0 22%,var(--shinchu) 22% 31%,transparent 31%)}.review-nav a{text-decoration:none}.review-nav>div{display:flex;align-items:center;gap:27px;color:#cfc4b2}.review-nav>div a{padding:27px 0 24px;border-bottom:2px solid transparent}.review-nav>div a:hover{color:#fff;border-bottom-color:var(--shinchu)}.wordmark{display:flex;align-items:center;gap:14px}.wordmark-copy{display:flex;flex-direction:column;gap:4px;letter-spacing:.18em}.wordmark-copy small{font-size:.47rem;letter-spacing:.13em;color:#9d9385}.joinery-mark{position:relative;display:block;width:42px;height:30px}.joinery-mark i{position:absolute;display:block;width:27px;height:9px;background:var(--hinoki)}.joinery-mark i:first-child{left:0;top:3px;clip-path:polygon(0 0,100% 0,100% 45%,72% 45%,72% 100%,0 100%)}.joinery-mark i:last-child{right:0;bottom:3px;clip-path:polygon(28% 0,100% 0,100% 100%,0 100%,0 55%,28% 55%)}.joinery-mark::before,.joinery-mark::after{content:"";position:absolute;z-index:2;width:11px;height:11px;background:var(--urushi)}.joinery-mark::before{left:14px;top:8px}.joinery-mark::after{right:14px;bottom:8px}.hero-content{position:relative;isolation:isolate;display:grid;grid-template-columns:minmax(0,1fr) 270px;gap:80px;align-items:end;min-height:410px;padding:76px 58px 68px}.hero-content::before{content:"${tr("review.css.hero_vertical")}";position:absolute;right:23px;top:30px;z-index:2;writing-mode:vertical-rl;font-family:"Hiragino Mincho ProN","Yu Mincho",serif;font-size:.7rem;letter-spacing:.22em;color:rgba(39,37,31,.55)}.hero-copy,.gate-status{position:relative;z-index:3}.hero-copy{max-width:760px}.hero-joinery{position:absolute;z-index:1;left:55%;top:0;width:190px;height:100%;transform:translateX(-50%);opacity:.9;filter:drop-shadow(0 8px 9px rgba(75,48,19,.18));animation:set-joinery 800ms cubic-bezier(.2,.8,.2,1) both}.hero-joinery::before,.hero-joinery::after{content:"";position:absolute;left:0;width:100%;height:51%;background:linear-gradient(90deg,#bc9865,#e6c994 46%,#c8a36d);border-inline:1px solid rgba(89,58,28,.18)}.hero-joinery::before{top:-1px;clip-path:polygon(0 0,100% 0,100% 66%,70% 66%,70% 100%,30% 100%,30% 66%,0 66%)}.hero-joinery::after{bottom:-1px;clip-path:polygon(30% 0,70% 0,70% 34%,100% 34%,100% 100%,0 100%,0 34%,30% 34%)}.hero-joinery span{position:absolute;left:57px;top:calc(50% - 20px);z-index:2;width:76px;height:40px;background:var(--urushi);box-shadow:inset 0 0 0 1px rgba(70,16,11,.32)}.hero-joinery i{position:absolute;left:94px;top:0;z-index:3;width:1px;height:100%;background:rgba(76,49,23,.28)}@keyframes set-joinery{from{opacity:0;transform:translate(-50%,-18px)}to{opacity:.9;transform:translate(-50%,0)}}.eyebrow{font:700 .63rem/1.2 SFMono-Regular,Consolas,monospace;letter-spacing:.16em;color:var(--urushi);margin:0 0 14px}.hero h1{max-width:720px;font-family:"Hiragino Mincho ProN","Yu Mincho","YuMincho",serif;font-size:clamp(3rem,5.7vw,5.55rem);font-weight:600;line-height:1.04;letter-spacing:-.055em;margin:.06em 0 .28em;text-wrap:balance}.lede{max-width:55ch;margin:0;color:#685d4f;font-size:.9rem}.gate-status{display:grid;grid-template-columns:9px 1fr;gap:13px;align-items:start;color:var(--kinari);background:rgba(30,32,27,.96);border-top:4px solid var(--urushi);padding:22px 21px 20px;box-shadow:9px 10px 0 rgba(115,80,43,.16)}.status-light{width:8px;height:8px;margin-top:4px;background:var(--shinchu);border-radius:50%;box-shadow:0 0 0 4px rgba(184,148,86,.13)}.gate-status small{display:block;font:700 .56rem SFMono-Regular,Consolas,monospace;letter-spacing:.11em;color:#a89e8f}.gate-status strong{display:block;font-family:"Hiragino Mincho ProN","Yu Mincho",serif;font-size:2.05rem;font-weight:600;line-height:1.1;margin:8px 0 3px}.gate-status p{margin:0;color:#bcb09f;font-size:.72rem}.metrics{display:grid;grid-template-columns:repeat(5,1fr);margin:0;background:#d8bd8f;border-top:1px solid #a8885a}.metrics div{position:relative;padding:19px 22px 21px;border-right:1px solid rgba(71,49,25,.23);background:linear-gradient(94deg,rgba(255,255,255,.18),transparent)}.metrics div::before{content:"";position:absolute;left:0;top:0;width:28px;height:3px;background:var(--urushi);transform:scaleX(0);transform-origin:left;transition:transform .22s ease}.metrics div:hover::before{transform:scaleX(1)}.metrics div:last-child{border:0}.metrics dt{font-size:.61rem;color:#6d5d49}.metrics dd{font:700 .92rem/1.25 SFMono-Regular,Consolas,monospace;margin:5px 0 0;color:var(--ink);overflow-wrap:anywhere}.warnings{color:var(--ink);border:1px solid #b69663;border-left:5px solid var(--urushi);background:var(--hinoki);padding:17px 21px;margin:24px 0 62px}.warnings h2{font-family:"Hiragino Mincho ProN","Yu Mincho",serif;font-size:1rem;margin:0}.warnings ul{margin:5px 0 0;padding-left:19px;font-size:.82rem}.section-heading{position:relative;display:flex;align-items:end;justify-content:space-between;gap:28px;margin:0 0 23px;padding:0 0 0 24px}.section-heading::before{content:"";position:absolute;left:0;top:3px;bottom:3px;width:7px;background:var(--urushi)}.section-heading::after{content:"";position:absolute;left:9px;top:3px;bottom:3px;width:2px;background:var(--shinchu)}.section-heading h2{font-family:"Hiragino Mincho ProN","Yu Mincho",serif;font-size:clamp(2rem,3.2vw,3rem);font-weight:600;line-height:1.1;letter-spacing:-.04em;margin:0;color:var(--kinari)}.section-heading>p{color:#b3aa9d;max-width:44ch;margin:0;font-size:.8rem}section{margin:0 0 82px}.storyboard-section{margin-top:66px}.screening-room{position:relative;color:var(--ink);background-color:var(--mokume);background-image:repeating-linear-gradient(1deg,transparent 0 27px,rgba(87,56,25,.045) 28px,transparent 30px),linear-gradient(105deg,rgba(255,255,255,.3),transparent 48%);padding:0 22px 22px;border:1px solid #8f7047;box-shadow:0 20px 55px rgba(0,0,0,.26)}.screening-room::before,.screening-room::after{content:"";position:absolute;top:-10px;width:74px;height:10px;background:var(--hinoki)}.screening-room::before{left:22%}.screening-room::after{right:22%}.screening-toolbar{height:53px;display:flex;align-items:center;justify-content:space-between;color:#5e4e3b;font:700 .58rem/1 SFMono-Regular,Consolas,monospace;letter-spacing:.11em;border-bottom:1px solid rgba(73,50,26,.26)}.film-strip{position:relative;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;padding:34px 0 17px}.film-strip::before{content:"";position:absolute;left:0;right:0;top:15px;height:9px;background:linear-gradient(180deg,#775435,#a9814f);box-shadow:inset 0 2px rgba(255,255,255,.16)}.shot{position:relative;min-width:0;margin:0;background:var(--kinari);border:1px solid #9d7b4d;box-shadow:5px 7px 0 rgba(76,51,25,.18);transition:transform .2s ease,box-shadow .2s ease}.shot:hover{transform:translateY(-3px);box-shadow:7px 11px 0 rgba(76,51,25,.15)}.shot::before,.shot::after{content:"";position:absolute;z-index:2;top:-19px;width:22px;height:13px;background:#775435}.shot::before{left:22px}.shot::after{right:22px}.shot-index{position:absolute;left:12px;top:-25px;z-index:3;display:flex;align-items:baseline;gap:4px;height:29px;padding:5px 9px;background:var(--urushi);color:#fff;border:1px solid #77271f;text-decoration:none;font-family:SFMono-Regular,Consolas,monospace;box-shadow:2px 2px 0 rgba(68,35,21,.25)}.shot-index b{font-size:.78rem;line-height:1}.shot-index small{font-size:.44rem;letter-spacing:.09em}.shot-meta{display:flex;justify-content:space-between;gap:10px;padding:10px 12px;color:#756552;font:700 .55rem/1 SFMono-Regular,Consolas,monospace;border-bottom:1px solid #d3c3a6;text-transform:uppercase}.frame{aspect-ratio:16/9;background:#d5c4a6;overflow:hidden;border-bottom:1px solid #c8b798}.frame img{display:block;width:100%;height:100%;object-fit:contain;background:#e5dac6}.wireframe{height:100%;display:flex;flex-direction:column;justify-content:space-between;padding:11%;background:linear-gradient(135deg,#d1b98f,#eee2ca);border:7px solid rgba(255,255,255,.22)}.wireframe span{font:700 .55rem SFMono-Regular,Consolas,monospace;color:#756552}.wireframe strong{max-width:19ch;font-family:"Hiragino Mincho ProN","Yu Mincho",serif;font-size:clamp(.92rem,1.3vw,1.16rem);font-weight:600;line-height:1.25}.shot figcaption{padding:16px 15px 17px;min-height:142px}.shot figcaption small{display:block;color:var(--urushi);font:700 .52rem SFMono-Regular,Consolas,monospace;letter-spacing:.12em}.shot figcaption strong{display:block;font-family:"Hiragino Mincho ProN","Yu Mincho",serif;font-size:1rem;line-height:1.38;margin:7px 0}.shot figcaption p{font-size:.7rem;line-height:1.65;color:#766b5c;margin:9px 0 0}.duration-track{position:relative;height:25px;border-top:1px solid #d3c3a6;background:#ded0b8;overflow:hidden}.duration-track span{display:block;height:100%;background:var(--urushi);opacity:.94}.duration-track b{position:absolute;right:8px;top:4px;font:700 .55rem SFMono-Regular,Consolas,monospace;color:var(--ink);mix-blend-mode:multiply}.playback-rail{display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:center;color:#66533d;font:700 .53rem SFMono-Regular,Consolas,monospace;letter-spacing:.06em}.playback-rail i{height:3px;background:linear-gradient(90deg,var(--urushi),#725135 48%,#725135 52%,var(--shinchu))}.characters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.character-card{display:grid;grid-template-columns:180px 1fr;color:var(--ink);background:var(--kinari);border:1px solid #a58b65;border-top:4px solid var(--character-accent);padding:17px;gap:24px;box-shadow:6px 7px 0 rgba(0,0,0,.15)}.character-image{aspect-ratio:1;display:grid;place-items:center;background-color:#d8c5a4;background-image:linear-gradient(90deg,transparent 49%,rgba(73,54,31,.13) 50%,transparent 51%),linear-gradient(transparent 49%,rgba(73,54,31,.13) 50%,transparent 51%);background-size:34px 34px;overflow:hidden}.character-image img{max-width:100%;max-height:100%;object-fit:contain}.character-placeholder{font:700 .58rem SFMono-Regular,Consolas,monospace;color:var(--ink-soft)}.character-card h3{font-family:"Hiragino Mincho ProN","Yu Mincho",serif;font-size:1.7rem;font-weight:600;line-height:1.2;margin:0}.pose-list{display:flex;flex-wrap:wrap;gap:7px;list-style:none;padding:0;margin-top:18px}.pose-list li{font:700 .58rem SFMono-Regular,Consolas,monospace;background:#e2d3b8;border:1px solid #c5ad86;padding:4px 8px}.empty{color:var(--ink);background:var(--kinari);padding:23px;border:1px dashed #a58b65}.review-layout{display:grid;grid-template-columns:minmax(0,2fr) minmax(330px,1fr);gap:34px;align-items:start}.review-layout>section{margin:0}.shot-detail{color:var(--ink);background:var(--kinari);border:1px solid #a58b65;border-bottom:0}.shot-detail:last-child{border-bottom:1px solid #a58b65}.shot-detail summary{display:grid;grid-template-columns:92px 1fr auto;gap:12px;align-items:center;min-height:63px;padding:11px 17px;cursor:pointer;font-weight:700;font-size:.86rem}.shot-detail summary:hover{background:#e9dcc5}.shot-detail summary span,.shot-detail summary time{font:700 .59rem SFMono-Regular,Consolas,monospace;color:#756552}.shot-detail summary span{color:var(--urushi)}.detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:28px;padding:5px 21px 26px;border-top:1px solid #d1bfa0}.detail-grid h3{font-size:.64rem;letter-spacing:.1em;text-transform:uppercase;color:var(--urushi)}.utility{font-family:SFMono-Regular,Consolas,monospace;font-size:.65rem}.muted{color:var(--ink-soft)}.decision{position:sticky;top:18px;color:var(--kinari);background:var(--sumi);padding:28px 26px 29px;border:1px solid #494439;border-top:6px solid var(--urushi);box-shadow:10px 12px 0 rgba(0,0,0,.19)}.decision::after{content:"${tr("review.css.required_stamp")}";position:absolute;right:22px;top:20px;display:grid;place-items:center;width:40px;height:40px;border:1px solid rgba(166,61,47,.65);color:var(--urushi);font-family:"Hiragino Mincho ProN","Yu Mincho",serif;font-size:1.2rem;transform:rotate(-4deg)}.decision-status{display:flex;align-items:center;gap:8px;color:#aaa091;font:700 .52rem SFMono-Regular,Consolas,monospace;letter-spacing:.11em;margin-bottom:26px}.decision-status span{width:7px;height:7px;border-radius:50%;background:var(--shinchu)}.decision h2{max-width:10ch;font-family:"Hiragino Mincho ProN","Yu Mincho",serif;font-size:1.85rem;font-weight:600;line-height:1.23;margin:0}.decision>p:not(.eyebrow){color:#bdb2a2;font-size:.76rem}.decision label{display:flex;align-items:center;gap:8px;font-size:.67rem;margin:18px 0 6px;color:#d2c8b8}.decision label i{width:7px;height:7px;border-radius:50%}.approve-dot{background:var(--approve)}.revise-dot{background:var(--shinchu)}.abort-dot{background:var(--danger)}.decision code{display:block;color:#2e281f;background:var(--hinoki);border:1px solid #987a50;border-left:4px solid var(--shinchu);padding:10px 11px;overflow-wrap:anywhere;font-size:.56rem;line-height:1.55}.decision-guide{margin:14px 0 0;color:#bdb2a2;font-size:.76rem;line-height:1.7}.decision-choices{list-style:none;margin:16px 0 0;padding:0}.decision-choices li{display:flex;align-items:flex-start;gap:8px;margin:10px 0;color:#d2c8b8;font-size:.74rem;line-height:1.5}.decision-choices i{width:7px;height:7px;border-radius:50%;margin-top:7px;flex:0 0 auto}.decision-commands{margin-top:18px;border-top:1px solid #494439;padding-top:12px}.decision-commands summary{cursor:pointer;color:#d2c8b8;font:700 .67rem/1.4 SFMono-Regular,Consolas,monospace}.decision-commands[open] summary{margin-bottom:8px}.conditions{margin-top:80px;color:var(--ink);background:var(--hinoki);border:1px solid #aa8c60;padding:27px;background-image:linear-gradient(100deg,rgba(255,255,255,.22),transparent)}.conditions .section-heading h2{color:var(--ink)}.conditions .section-heading>p{color:var(--ink-soft)}.conditions ul{padding-left:20px}.conditions>p{color:var(--ink-soft);font-size:.75rem}footer{display:flex;justify-content:space-between;border-top:1px solid var(--light-rule);padding-top:18px;color:#968e82;font:700 .58rem SFMono-Regular,Consolas,monospace}
 main[data-aspect="9:16"] .frame{aspect-ratio:9/16}
-.background-section{margin-top:66px}.background-plate{position:relative;display:grid;grid-template-columns:minmax(0,1.75fr) minmax(270px,.65fr);margin:0;color:var(--ink);background:var(--hinoki);border:1px solid #9d7b4d;box-shadow:8px 10px 0 rgba(0,0,0,.18)}.background-plate::before,.background-plate::after{content:"";position:absolute;z-index:2;width:68px;height:11px;background:var(--mokume);border:1px solid rgba(87,56,25,.25)}.background-plate::before{left:18%;top:-6px}.background-plate::after{right:18%;bottom:-6px}.background-frame{position:relative;min-height:320px;aspect-ratio:16/9;overflow:hidden;background:var(--sumi);border-right:1px solid #9d7b4d}.background-frame::after{content:"背景板";position:absolute;left:14px;bottom:14px;padding:6px 9px;color:var(--kinari);background:rgba(23,27,24,.83);font:700 .54rem SFMono-Regular,Consolas,monospace;letter-spacing:.12em}.background-frame img{display:block;width:100%;height:100%;object-fit:cover}.background-placeholder{height:100%;display:grid;place-items:center;color:#a69a88;font:700 .62rem SFMono-Regular,Consolas,monospace;letter-spacing:.16em}.background-plate figcaption{align-self:stretch;display:flex;flex-direction:column;justify-content:center;padding:34px 30px;background-image:repeating-linear-gradient(2deg,transparent 0 23px,rgba(92,61,30,.04) 24px,transparent 26px)}.background-plate figcaption h3{font-family:"Hiragino Mincho ProN","Yu Mincho",serif;font-size:1.55rem;font-weight:600;line-height:1.38;margin:0}.background-plate figcaption>p:not(.eyebrow){color:var(--ink-soft);font-size:.76rem}.background-plate figcaption dl{display:grid;gap:10px;margin:24px 0 0}.background-plate figcaption dl div{display:grid;grid-template-columns:70px 1fr;gap:12px;padding-top:8px;border-top:1px solid rgba(75,58,36,.2)}.background-plate figcaption dt{font:700 .53rem SFMono-Regular,Consolas,monospace;color:var(--urushi);letter-spacing:.1em}.background-plate figcaption dd{margin:0;font:700 .65rem SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}.background-plate[data-aspect="9:16"]{grid-template-columns:minmax(280px,.8fr) minmax(270px,1fr)}.background-plate[data-aspect="9:16"] .background-frame{justify-self:center;width:min(100%,430px);aspect-ratio:9/16;border-left:1px solid #9d7b4d}
+.background-section{margin-top:66px}.background-plate{position:relative;display:grid;grid-template-columns:minmax(0,1.75fr) minmax(270px,.65fr);margin:0;color:var(--ink);background:var(--hinoki);border:1px solid #9d7b4d;box-shadow:8px 10px 0 rgba(0,0,0,.18)}.background-plate::before,.background-plate::after{content:"";position:absolute;z-index:2;width:68px;height:11px;background:var(--mokume);border:1px solid rgba(87,56,25,.25)}.background-plate::before{left:18%;top:-6px}.background-plate::after{right:18%;bottom:-6px}.background-frame{position:relative;min-height:320px;aspect-ratio:16/9;overflow:hidden;background:var(--sumi);border-right:1px solid #9d7b4d}.background-frame::after{content:"${tr("review.css.background_plate")}";position:absolute;left:14px;bottom:14px;padding:6px 9px;color:var(--kinari);background:rgba(23,27,24,.83);font:700 .54rem SFMono-Regular,Consolas,monospace;letter-spacing:.12em}.background-frame img{display:block;width:100%;height:100%;object-fit:cover}.background-placeholder{height:100%;display:grid;place-items:center;color:#a69a88;font:700 .62rem SFMono-Regular,Consolas,monospace;letter-spacing:.16em}.background-plate figcaption{align-self:stretch;display:flex;flex-direction:column;justify-content:center;padding:34px 30px;background-image:repeating-linear-gradient(2deg,transparent 0 23px,rgba(92,61,30,.04) 24px,transparent 26px)}.background-plate figcaption h3{font-family:"Hiragino Mincho ProN","Yu Mincho",serif;font-size:1.55rem;font-weight:600;line-height:1.38;margin:0}.background-plate figcaption>p:not(.eyebrow){color:var(--ink-soft);font-size:.76rem}.background-plate figcaption dl{display:grid;gap:10px;margin:24px 0 0}.background-plate figcaption dl div{display:grid;grid-template-columns:70px 1fr;gap:12px;padding-top:8px;border-top:1px solid rgba(75,58,36,.2)}.background-plate figcaption dt{font:700 .53rem SFMono-Regular,Consolas,monospace;color:var(--urushi);letter-spacing:.1em}.background-plate figcaption dd{margin:0;font:700 .65rem SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}.background-plate[data-aspect="9:16"]{grid-template-columns:minmax(280px,.8fr) minmax(270px,1fr)}.background-plate[data-aspect="9:16"] .background-frame{justify-self:center;width:min(100%,430px);aspect-ratio:9/16;border-left:1px solid #9d7b4d}
 .hero-copy,.review-progress{position:relative;z-index:3}.review-progress{display:grid;grid-template-columns:9px 1fr;gap:13px;align-items:start;color:var(--kinari);background:rgba(30,32,27,.96);border-top:4px solid var(--shinchu);padding:22px 21px 20px;box-shadow:9px 10px 0 rgba(115,80,43,.16)}.review-progress small{display:block;font:700 .56rem SFMono-Regular,Consolas,monospace;letter-spacing:.11em;color:#a89e8f}.review-progress strong{display:block;font-family:"Hiragino Mincho ProN","Yu Mincho",serif;font-size:1.35rem;font-weight:600;line-height:1.35;margin:8px 0 5px}.review-progress p{margin:0;color:#bcb09f;font-size:.7rem}.motion-count{display:inline-flex!important;margin-top:12px;padding:4px 7px;color:var(--kinari)!important;background:var(--koke);font:700 .48rem SFMono-Regular,Consolas,monospace!important;letter-spacing:.08em!important}.motion-section{margin-top:82px}.motion-overview{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(360px,.85fr);gap:30px;color:var(--ink);background:var(--hinoki);border:1px solid #9d7b4d;padding:28px 30px;box-shadow:7px 9px 0 rgba(0,0,0,.16)}.motion-overview h3{font-family:"Hiragino Mincho ProN","Yu Mincho",serif;font-size:1.6rem;line-height:1.4;margin:13px 0 8px}.motion-overview p,.motion-overview li{font-size:.76rem}.motion-status{display:inline-block;padding:5px 9px;color:#fff;background:var(--koke);font:700 .55rem SFMono-Regular,Consolas,monospace;letter-spacing:.08em}.motion-status[data-status="unspecified"]{background:var(--urushi)}.motion-status[data-status="partial"]{color:var(--ink);background:var(--shinchu)}.motion-overview dl{display:grid;grid-template-columns:1fr 1fr;gap:1px;margin:0;background:rgba(75,58,36,.2);border:1px solid rgba(75,58,36,.2)}.motion-overview dl div{min-width:0;padding:11px 12px;background:var(--kinari)}.motion-overview dt{font:700 .5rem SFMono-Regular,Consolas,monospace;color:var(--urushi);letter-spacing:.08em}.motion-overview dd{margin:5px 0 0;font-size:.68rem;overflow-wrap:anywhere}.motion-score{display:grid;gap:15px;margin-top:16px}.motion-shot{color:var(--ink);background:var(--kinari);border:1px solid #a58b65}.motion-shot>header{display:grid;grid-template-columns:80px 1fr auto;gap:13px;align-items:center;padding:13px 17px;background:#dfceb0;border-bottom:1px solid #c4aa80}.motion-shot>header span,.motion-shot>header time{font:700 .55rem SFMono-Regular,Consolas,monospace;color:var(--urushi)}.motion-shot>header h3{margin:0;font-family:"Hiragino Mincho ProN","Yu Mincho",serif;font-size:1.05rem}.motion-cues{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1px;background:#cdb994}.motion-cue{display:grid;grid-template-columns:92px 1fr;gap:14px;min-width:0;padding:15px;background:var(--kinari)}.motion-cue h4{font-size:.77rem;line-height:1.35;margin:5px 0}.motion-cue p{font-size:.65rem;line-height:1.5;margin:0}.motion-cue small{display:block;margin-top:7px;color:var(--ink-soft);font:700 .52rem SFMono-Regular,Consolas,monospace}.motion-phase{color:var(--urushi);font:700 .5rem SFMono-Regular,Consolas,monospace;letter-spacing:.1em}.motion-demo{position:relative;height:68px;overflow:hidden;background:linear-gradient(135deg,#242922,#474b40);border:1px solid #171b18}.motion-demo::before{content:"";position:absolute;inset:8px;border:1px solid rgba(244,237,223,.14)}.motion-demo-layer{position:absolute;left:13px;right:13px;top:22px;padding:5px 6px;color:#fff;background:var(--urushi);font:700 .48rem SFMono-Regular,Consolas,monospace;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;will-change:transform,opacity,clip-path;animation-duration:3.2s;animation-iteration-count:infinite;animation-timing-function:ease-in-out}.motion-cue[data-motion-preset="fade"] .motion-demo-layer{animation-name:motion-fade}.motion-cue[data-motion-preset="slide-left"] .motion-demo-layer{animation-name:motion-slide-left}.motion-cue[data-motion-preset="slide-right"] .motion-demo-layer{animation-name:motion-slide-right}.motion-cue[data-motion-preset="rise"] .motion-demo-layer{animation-name:motion-rise}.motion-cue[data-motion-preset="zoom-in"] .motion-demo-layer{animation-name:motion-zoom-in}.motion-cue[data-motion-preset="zoom-out"] .motion-demo-layer{animation-name:motion-zoom-out}.motion-cue[data-motion-preset="pan-left"] .motion-demo-layer{animation-name:motion-pan-left}.motion-cue[data-motion-preset="pan-right"] .motion-demo-layer{animation-name:motion-pan-right}.motion-cue[data-motion-preset="parallax"] .motion-demo-layer{animation-name:motion-parallax}.motion-cue[data-motion-preset="pulse"] .motion-demo-layer{animation-name:motion-pulse}.motion-cue[data-motion-preset="wipe"] .motion-demo-layer{animation-name:motion-wipe}.motion-notes{margin:0;padding:10px 22px 13px 38px;border-top:1px solid #d1bfa0;font-size:.68rem}.motion-empty{color:var(--ink);background:var(--hinoki);border:1px dashed #9d7b4d;padding:24px}.motion-empty strong{font-family:"Hiragino Mincho ProN","Yu Mincho",serif;font-size:1.15rem}.motion-empty p{max-width:80ch;font-size:.75rem}.motion-disclaimer{margin:13px 0 0;color:#aaa093;font-size:.7rem}.shot-motion-detail{grid-column:1/-1;padding-top:4px;border-top:1px solid #d1bfa0}.shot-motion-detail ol{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 24px;padding-left:20px}.shot-motion-detail li{font-size:.72rem}.shot-motion-detail li span{color:var(--ink-soft);font:700 .58rem SFMono-Regular,Consolas,monospace}.final-decision{display:grid;grid-template-columns:minmax(0,1fr) minmax(380px,.85fr);gap:48px;align-items:center;margin-top:96px;padding:46px;color:var(--kinari);background:linear-gradient(112deg,#252a23,#171b18);border:1px solid #494439;border-top:8px solid var(--urushi);box-shadow:0 26px 70px rgba(0,0,0,.3)}.final-decision-copy h2{font-family:"Hiragino Mincho ProN","Yu Mincho",serif;font-size:clamp(2.2rem,4vw,4rem);font-weight:600;line-height:1.12;margin:0}.final-decision-copy>p:not(.eyebrow){max-width:45ch;color:#bdb2a2}.final-decision .decision{position:relative;top:auto;box-shadow:9px 11px 0 rgba(0,0,0,.22)}.decision h3{max-width:10ch;font-family:"Hiragino Mincho ProN","Yu Mincho",serif;font-size:1.85rem;font-weight:600;line-height:1.23;margin:0}@keyframes motion-fade{0%,100%{opacity:0}22%,72%{opacity:1}}@keyframes motion-slide-left{0%,100%{opacity:0;transform:translateX(-55px)}25%,72%{opacity:1;transform:translateX(0)}}@keyframes motion-slide-right{0%,100%{opacity:0;transform:translateX(55px)}25%,72%{opacity:1;transform:translateX(0)}}@keyframes motion-rise{0%,100%{opacity:0;transform:translateY(24px)}25%,72%{opacity:1;transform:translateY(0)}}@keyframes motion-zoom-in{0%,100%{opacity:0;transform:scale(.72)}25%,72%{opacity:1;transform:scale(1)}}@keyframes motion-zoom-out{0%,100%{opacity:0;transform:scale(1.35)}25%,72%{opacity:1;transform:scale(1)}}@keyframes motion-pan-left{0%,100%{transform:translateX(26px)}50%{transform:translateX(-26px)}}@keyframes motion-pan-right{0%,100%{transform:translateX(-26px)}50%{transform:translateX(26px)}}@keyframes motion-parallax{0%,100%{transform:translate(-20px,8px) rotate(-2deg)}50%{transform:translate(16px,-5px) rotate(1deg)}}@keyframes motion-pulse{0%,100%{transform:scale(1)}35%{transform:scale(1.14)}52%{transform:scale(1)}}@keyframes motion-wipe{0%,100%{clip-path:inset(0 100% 0 0)}28%,72%{clip-path:inset(0 0 0 0)}}
 @media(max-width:1199px){.film-strip{grid-template-columns:repeat(3,minmax(0,1fr))}.review-layout{grid-template-columns:1fr}.decision{position:static}.hero-content{grid-template-columns:minmax(0,1fr) 255px;gap:50px}.hero-joinery{left:57%;width:150px}.metrics{grid-template-columns:repeat(3,1fr)}.metrics div:nth-child(3){border-right:0}.metrics div:nth-child(n+4){border-top:1px solid rgba(71,49,25,.23)}}
 @media(max-width:800px){main{width:min(100% - 24px,1460px);padding-top:12px}.review-nav{padding:0 20px}.review-nav>div{display:none}.hero-content{grid-template-columns:1fr;min-height:0;padding:58px 26px 42px}.hero-content::before{display:none}.hero-copy{min-width:0;padding-right:52px}.hero h1{max-width:100%;word-break:keep-all;overflow-wrap:anywhere;text-wrap:wrap}.hero-joinery{left:auto;right:14px;width:90px;transform:none;opacity:.42;animation:none}.hero-joinery span{left:27px;width:36px}.hero-joinery i{left:44px}.gate-status{max-width:330px;margin-top:14px}.metrics{grid-template-columns:repeat(2,1fr)}.metrics div:nth-child(3){border-right:1px solid rgba(71,49,25,.23)}.metrics div:nth-child(even){border-right:0}.metrics div:nth-child(n+3){border-top:1px solid rgba(71,49,25,.23)}.film-strip{grid-template-columns:repeat(2,minmax(0,1fr))}.characters{grid-template-columns:1fr}.character-card{grid-template-columns:140px 1fr}.section-heading{display:block}.section-heading>p{margin-top:10px}.detail-grid{grid-template-columns:1fr}.shot-detail summary{grid-template-columns:70px 1fr}.shot-detail summary time{display:none}.screening-room{padding-inline:14px}.screening-room::before,.screening-room::after{width:45px}}
@@ -2771,8 +2818,8 @@ function safeColor(value: string): string {
   return /^#[0-9a-f]{3,8}$/i.test(value) ? value : "#176b87";
 }
 
-function formatSeconds(value: number): string {
-  return `${formatNumber(value)}秒`;
+function formatSeconds(value: number, tr: Translator = reviewTranslator()): string {
+  return tr("review.format.seconds", { value: formatNumber(value) });
 }
 
 function formatNumber(value: number): string {
