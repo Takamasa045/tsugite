@@ -124,7 +124,7 @@ The owner-facing [v1→v2 migration decision record](migration-plan.ja.md)
 records the 2026-10-19 decision: the recommended feature split is adopted,
 paid acceptance is last (lowest-credit service first; Kling may need prepaid
 credits), and execution order is 1 → 3 → 4 → 5 → 2. Remaining owner choices
-are the three testers and which issues to publish, the v2 default cutover,
+are the three testers, the v2 default cutover,
 and v1 wind-down.
 
 The registry acquisition command has synthetic hostile-output tests and real
@@ -139,5 +139,5 @@ account, credentials change or destructive v1 migration. Actual push/CI/tag/asse
 results are recorded only after read-back. PR #203 merged at `73f00cf`, and
 `v2.0.0-alpha.1` is a public prerelease at that commit. All seven release assets
 were downloaded without authentication and matched their SHA-256 values.
-Current totals: **73 done, 7 partial, 10 external** (90 requirements). This does
+Current totals: **74 done, 6 partial, 10 external** (90 requirements). This does
 not turn the remaining acceptance gates into completed implementation claims.
