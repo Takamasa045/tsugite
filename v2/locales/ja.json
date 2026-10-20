@@ -38,6 +38,8 @@
     "stage_check_plan": "計画の確認",
     "stage_check_clips": "クリップの確認",
     "stage_check_final": "最終確認",
+    "check_waiting": "承認待ち",
+    "check_approved": "承認済み",
     "approve_plan": "計画を承認",
     "approve_clips": "クリップを承認",
     "approve_final": "最終を承認",

@@ -44,10 +44,29 @@ function resolveCliLanguage(cliLang, projectLang) {
   return resolveLanguageFromEnvironment({ cliLang, projectLang }).language;
 }
 
+function optionValue(argv, name) {
+  const index = argv.indexOf(name);
+  if (index < 0) return undefined;
+  const value = argv[index + 1];
+  if (!value || value.startsWith('-')) return undefined;
+  return value;
+}
+
+async function readProjectLang(rootHint) {
+  try {
+    const root = await fs.realpath(path.resolve(rootHint || process.cwd()));
+    const parsed = parse(await fs.readFile(path.join(root, 'tsugite.yaml'), 'utf8'), { maxAliasCount: 0 });
+    return typeof parsed?.lang === 'string' ? parsed.lang : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function main(argv = process.argv.slice(2)) {
   const extracted = extractLangOption(argv);
   if (!extracted.argv.length || extracted.argv.includes('--help')) {
-    process.stdout.write(t('cli.help', undefined, resolveCliLanguage(extracted.lang)));
+    const projectLang = await readProjectLang(optionValue(extracted.argv, '--project'));
+    process.stdout.write(t('cli.help', undefined, resolveCliLanguage(extracted.lang, projectLang)));
     return;
   }
   const command = extracted.argv[0], options = { project:{type:'string'}, json:{type:'boolean'} };
@@ -60,12 +79,7 @@ export async function main(argv = process.argv.slice(2)) {
   if (!Object.hasOwn(perCommand,command)) fail('Unknown command');
   const {values,positionals} = parseArgs({ args:extracted.argv.slice(1), options:{...options,...perCommand[command]},allowPositionals:true,strict:true });
   const root = await fs.realpath(path.resolve(values.project || process.cwd()));
-  let projectLang;
-  try {
-    const parsed = parse(await fs.readFile(path.join(root, 'tsugite.yaml'), 'utf8'), { maxAliasCount: 0 });
-    projectLang = typeof parsed?.lang === 'string' ? parsed.lang : undefined;
-  } catch {}
-  const language = resolveCliLanguage(extracted.lang, projectLang);
+  const language = resolveCliLanguage(extracted.lang, await readProjectLang(root));
   let result;
   if (command === 'mcp') {
     if (positionals.length) fail('Unexpected arguments');

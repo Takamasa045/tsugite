@@ -39,7 +39,11 @@ async function html(root, token, lang) {
     let scope;
     try { scope = await checkScope(root, stage, p, info.digest, s); } catch {}
     const preceding = stage === 'clips' ? info.checks.plan === 'approved' : stage === 'final' ? info.checks.clips === 'approved' : true;
-    checks += `<section><h2>${tr('review.stage_check_' + stage)}</h2><p>${escape(info.checks[stage])}</p>${form(token, info.digest, 'approve', { stage, scope: scope ?? '' }, tr('review.approve_' + stage), !scope || !preceding || info.checks[stage] === 'approved')}</section>`;
+    const checkState = info.checks[stage];
+    const checkLabel = checkState === 'approved' || checkState === 'waiting'
+      ? tr('review.check_' + checkState)
+      : checkState;
+    checks += `<section><h2>${tr('review.stage_check_' + stage)}</h2><p>${escape(checkLabel)}</p>${form(token, info.digest, 'approve', { stage, scope: scope ?? '' }, tr('review.approve_' + stage), !scope || !preceding || info.checks[stage] === 'approved')}</section>`;
   }
   let clipsScope; try { clipsScope = await checkScope(root, 'clips', p, info.digest, s); } catch {}
   let clean; try { clean = await cleanPreview(root); } catch {}

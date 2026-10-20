@@ -17,6 +17,7 @@ import {fixture,page,settings} from './helpers.mjs';
 
 test('v2 default language stays English and help matches the previous text', () => {
   assert.equal(DEFAULT_LANGUAGE, 'en');
+  assert.match(help, /\[--lang ja\|en]/);
   assert.match(help, /plan \[--no-review] \[--open] \[--no-open]/);
   assert.match(help, /does not open a browser unless --open/);
   assert.equal(t('review.plan_storyboard'), 'Plan & storyboard');
@@ -80,6 +81,37 @@ test('plan keeps the Japanese path notice by default', async t => {
   const page = await main(['plan', '--project', root]);
   t.after(() => page.close());
   assert.equal(stderr.join(''), `確認画面: ${page.url} （開くには --open）\n`);
+});
+
+test('help uses tsugite.yaml lang when --lang is absent', async t => {
+  const {root} = await fixture(t);
+  await settings(root, { lang: 'ja' });
+  const stdout = [];
+  const writeOut = process.stdout.write.bind(process.stdout);
+  process.stdout.write = (chunk) => { stdout.push(String(chunk)); return true; };
+  t.after(() => { process.stdout.write = writeOut; });
+  await main(['--help', '--project', root]);
+  assert.match(stdout.join(''), /使い方: tsugite/);
+  assert.doesNotMatch(stdout.join(''), /Usage: tsugite/);
+});
+
+test('unsupported tsugite.yaml lang is ignored so the project still loads', async t => {
+  const {root} = await fixture(t);
+  await settings(root, { lang: 'fr' });
+  await plan(root);
+  const ui = await page(t, root);
+  assert.match(ui.html, /<html lang="en">/);
+  assert.match(ui.html, /Plan & storyboard/);
+});
+
+test('Japanese confirmation page translates check state', async t => {
+  const {root} = await fixture(t);
+  await plan(root);
+  const ja = await review(root, { lang: 'ja' });
+  t.after(() => ja.close());
+  const jaHtml = await (await fetch(ja.url)).text();
+  assert.match(jaHtml, /承認待ち/);
+  assert.doesNotMatch(jaHtml, /<p>waiting<\/p>/);
 });
 
 test('help --lang ja prints the Japanese catalog', async t => {
