@@ -28,8 +28,10 @@ Viewerの依存関係を一度インストールしたあと、リポジトリ�
 
 ```sh
 npm --prefix apps/workflow-viewer ci
-npm run viewer:open
+node bin/pipeline viewer-launcher --json
 ```
+
+表示されたURLを自分で開き、確認画面を見てからGateを承認します。`npm run viewer:open` はブラウザを自動で開きたい場合だけ使います。
 
 ブラウザの制作棚から案件を選ぶと、保存済みの制作状態を確認し、3D Viewerを更新して開けます。Desktop UIから`validate` / `plan` / `review` / `run` / `render` / Gate判定は実行しません。これらの制作操作は、既存の承認境界を守ってCLIから行います。
 
@@ -39,10 +41,10 @@ Desktopで制作棚が0件の場合だけ、現在のworkspace名と再選択ボ
 
 ランチャーと成果物サーバーは、それぞれ動的に選ばれた `127.0.0.1` のポートだけで待ち受けます。LANや外部に公開するサーバーではありません。終了は起動したターミナルの `Ctrl+C` です。
 
-特定の1案件だけを直接生成して開く場合は、従来どおり次を使います。
+特定の1案件だけを直接生成する場合は、従来どおり次を使います。表示された`viewer_path`を自分で開きます。
 
 ```sh
-node bin/pipeline viewer --config projects/my-first-run/project.yaml --open --json
+node bin/pipeline viewer --config projects/my-first-run/project.yaml --json
 ```
 
 既定では `dist/<run-id>/viewer/` に `index.html`、`workflow.json`、静的アセットを出力します。`--state-dir` で実行状態の参照先、`--output` で3D Viewer出力先を変更できます。3D Viewer生成は `state.json` やGateを変更しません。3D側のスナップショットを更新するには、コマンドを再実行するか、ランチャーの「最新状態に更新して開く」を使います。

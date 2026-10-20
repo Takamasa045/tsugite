@@ -10,7 +10,7 @@ A user can open a loopback-only browser launcher that lists local `*/project.yam
 
 ## How to get to it (user POV)
 
-- README: `npm --prefix apps/workflow-viewer ci` once, then `npm run viewer:open` (wrapper for `node bin/pipeline viewer-launcher --open`).
+- README: `npm --prefix apps/workflow-viewer ci` once, then `node bin/pipeline viewer-launcher --json`. Tell the user the printed `url`; they open it. `npm run viewer:open` is optional for people who want the browser opened automatically.
 - Direct CLI: `node bin/pipeline viewer-launcher [--projects-dir <directory>] [--port <port>] [--open] [--json]`.
 - Help: `node bin/pipeline help viewer-launcher`.
 - User looks at the shelf in the browser; this skill proves the same list via HTTP JSON. Desktop empty-shelf folder picker is not a supported distribution path.

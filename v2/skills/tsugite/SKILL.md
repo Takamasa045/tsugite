@@ -11,7 +11,7 @@ outside the tool repository. `tsugite.yaml` is the only project entry point.
 1. `tsugite init my-video` creates a synthetic, offline sample.
 2. In that folder, run `tsugite check --json` and `tsugite plan --no-review --json`.
 3. Summarize the plan, duration, plugins and each service's credits separately.
-4. Ask the user to run `tsugite plan` and approve in the confirmation page.
+4. Ask the user to run `tsugite plan`, tell them the printed confirmation URL, and wait while they open it and approve. Do not pass `--open` unless they ask.
 5. `tsugite make --json` stops unless the current plan has been approved.
 6. Ask the user to review clips in that same page. The configured zero-new-assets
    exception can pass clips automatically for the offline sample.

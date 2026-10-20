@@ -28,8 +28,9 @@ v1 commands and active productions stay on v1. The alpha's paid-service and
 independent-user acceptance gates remain open.
 
 From this repository, use `npm run --silent v2 -- --help`, then `npm run --silent v2 -- init
-./projects/my-video-v2` and `npm run --silent v2 -- plan --project ./projects/my-video-v2 --no-open`. Keep the
-process running and open its printed confirmation URL. Only after page approval,
+./projects/my-video-v2` and `npm run --silent v2 -- plan --project ./projects/my-video-v2`. Keep the
+process running and open its printed confirmation URL. Add `--open` only if you
+want the browser opened automatically. `--no-open` is accepted and ignored. Only after page approval,
 run `make` and `export` through the same entry. Node.js and FFmpeg are required;
 the account-free sample uses no provider credits. See [v2 usage](../v2/README.md).
 For MCP, use `node /absolute/tsugite/v2/bin/tsugite.mjs mcp --project /absolute/video`,
@@ -191,8 +192,10 @@ Open the Tsugite repository in Codex or Claude Code, then use the loopback brows
 
 ```sh
 npm --prefix apps/workflow-viewer ci  # first time only
-npm run viewer:open
+node bin/pipeline viewer-launcher --json
 ```
+
+The command prints the launcher URL. Open that URL yourself, then inspect the review or Gate page before any approval. `npm run viewer:open` is only if you want the browser opened automatically.
 
 The launcher and artifact server bind only to dynamically selected `127.0.0.1` ports. Stop with `Ctrl+C` in the launching terminal. It never requests browser notification permission, sends desktop notifications, runs as a resident service, or uses an external notification destination.
 
@@ -230,7 +233,7 @@ On Windows, reopen the terminal after installation. Canonical launcher and CLI e
 npm ci
 npm --prefix apps/workflow-viewer ci
 node bin/pipeline doctor --config examples/local-fixture/project.yaml --json
-npm run viewer:open
+node bin/pipeline viewer-launcher --json
 ```
 
 After a successful local first-time setup, Codex and Claude Code ask once whether to add the optional learning-promotion automation. Registration needs an explicit host choice; a decline suppresses the repeat question for that setup. See [Learning Promotion Review](automations/learning-promotion-review.md).
@@ -258,13 +261,13 @@ cp -R examples/local-fixture projects/my-first-run
 node bin/pipeline doctor --config projects/my-first-run/project.yaml --json
 node bin/pipeline validate --config projects/my-first-run/project.yaml --json
 node bin/pipeline plan --config projects/my-first-run/project.yaml --json
-node bin/pipeline review --config projects/my-first-run/project.yaml --open --json
-node bin/pipeline viewer --config projects/my-first-run/project.yaml --open --json
+node bin/pipeline review --config projects/my-first-run/project.yaml --json
+node bin/pipeline viewer --config projects/my-first-run/project.yaml --json
 node bin/pipeline run --config projects/my-first-run/project.yaml --dry-run --json
 node bin/pipeline finalize --config projects/my-first-run/project.yaml --json
 ```
 
-`review` writes `dist/<run-id>/review/index.html` and `review-data.json` (caption-first storyboard, character sheets, shot details, cost, motion direction). The Gate 1 decision appears once at the end and does not change `state.json`. Gate 1 approval requires both artifacts at the canonical location for the current project. `--open` only opens the local HTML.
+`review` writes `dist/<run-id>/review/index.html` and `review-data.json` (caption-first storyboard, character sheets, shot details, cost, motion direction). The command prints that path; open the HTML yourself, then approve Gate 1. The Gate 1 decision appears once at the end and does not change `state.json`. Gate 1 approval requires both artifacts at the canonical location for the current project. `--open` only opens the local HTML when you ask for it.
 
 `viewer` writes `dist/<run-id>/viewer/index.html` and `workflow.json` from the validated project, plan, `state.json`, `run-log.md`, review, and Gate 2 / Gate 3 QC. The timeline is reconstructed from plan order and current artifacts because Tsugite does not yet persist a complete event history.
 

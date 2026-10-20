@@ -49,9 +49,10 @@ node /path/to/tsugite/v2/bin/tsugite.mjs check
 node /path/to/tsugite/v2/bin/tsugite.mjs plan
 ```
 
-Keep the plan process running; it prints and opens a local confirmation page.
-Review the storyboard, duration, renderer and service-specific credit limits,
-then click **Approve plan**. In a second terminal in `my-video`:
+Keep the plan process running; it prints the local confirmation URL and does
+not open a browser unless you add `--open`. Open that URL, review the
+storyboard, duration, renderer and service-specific credit limits, then click
+**Approve plan**. In a second terminal in `my-video`:
 
 ```sh
 node /path/to/tsugite/v2/bin/tsugite.mjs make

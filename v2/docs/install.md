@@ -31,7 +31,7 @@ node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs check --project ./my-v
 node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs plan --project ./my-video
 ```
 
-Keep the plan process running. Review the local page, then click **Approve plan**.
+Keep the plan process running. It prints the confirmation URL and does not open a browser unless you add `--open`. Open that URL, review the local page, then click **Approve plan**.
 In another terminal in the same working folder:
 
 ```sh

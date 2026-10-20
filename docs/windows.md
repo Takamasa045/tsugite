@@ -33,10 +33,10 @@ Run these commands from the Tsugite repository root:
 npm ci
 npm --prefix apps/workflow-viewer ci
 node bin/pipeline doctor --config examples/local-fixture/project.yaml --json
-npm run viewer:open
+node bin/pipeline viewer-launcher --json
 ```
 
-The launcher listens only on `127.0.0.1` and opens in the default browser. Stop it with `Ctrl+C` in the PowerShell window that started it.
+The launcher listens only on `127.0.0.1` and prints its URL. Open that URL yourself. `npm run viewer:open` is only if you want the browser opened automatically. Stop the launcher with `Ctrl+C` in the PowerShell window that started it.
 
 ## Core CLI
 
@@ -46,8 +46,8 @@ Use `node bin/pipeline` as the shell-neutral direct entrypoint. `npm run --silen
 Copy-Item -Recurse examples/local-fixture projects/my-first-run
 node bin/pipeline validate --config projects/my-first-run/project.yaml --json
 node bin/pipeline plan --config projects/my-first-run/project.yaml --json
-node bin/pipeline review --config projects/my-first-run/project.yaml --open --json
-node bin/pipeline viewer --config projects/my-first-run/project.yaml --open --json
+node bin/pipeline review --config projects/my-first-run/project.yaml --json
+node bin/pipeline viewer --config projects/my-first-run/project.yaml --json
 node bin/pipeline run --config projects/my-first-run/project.yaml --dry-run --json
 ```
 

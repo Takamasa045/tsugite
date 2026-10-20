@@ -10,7 +10,7 @@ A user can generate a Gate 1 creative review without approving a Gate or startin
 
 ## How to get to it (user POV)
 
-- README: `node bin/pipeline review --config projects/my-first-run/project.yaml --open --json`.
+- README: `node bin/pipeline review --config projects/my-first-run/project.yaml --json`. Tell the user the printed `review_path`; they open that HTML before Gate approval. `--open` is optional and not the default.
 - Help: `node bin/pipeline help review` (`--config`, `--output`, `--state-dir`, `--open`).
 - Default destination when `--output` is omitted: `<project.dist_dir>/<run_id>/review/` (for this fixture, `dist/local-fixture-run/review/`).
 - Gate 1 approval in the Tsugite skill requires those two artifacts to exist and belong to the current project. This verification skill **stops after writing them**.
