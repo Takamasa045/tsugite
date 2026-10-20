@@ -34,6 +34,11 @@ describe("CLI human output", () => {
         expect(payload.command).toBe(command);
         expect(humanResult.stdout).toContain("✓");
         expect(humanResult.stdout).not.toMatch(/^\s*\{/);
+        if (command === "review") {
+          expect(humanResult.stdout).toContain("確認画面:");
+          expect(humanResult.stdout).toContain("（開くには --open）");
+          expect(humanResult.stdout).toContain(payload.review_path);
+        }
       }
     } finally {
       if (previousHome === undefined) delete process.env.TSUGITE_PROJECTS_HOME;
@@ -56,12 +61,28 @@ describe("CLI human output", () => {
       plan: { run_id: "demo-run", estimated_credits: 0, total_clip_duration_seconds: 2 }
     })).toContain("予想される生成費用: 0");
 
-    expect(formatHuman({
+    const review = formatHuman({
       ok: true,
       command: "review",
       review_path: "/tmp/review/index.html",
       gate_state: "unchanged"
-    })).toContain("承認状態は変えていません。");
+    });
+    expect(review).toContain("確認画面: /tmp/review/index.html （開くには --open）");
+    expect(review).toContain("承認状態は変えていません。");
+
+    expect(formatHuman({
+      ok: true,
+      command: "viewer",
+      viewer_path: "/tmp/viewer/index.html",
+      opened: false
+    })).toContain("確認画面: /tmp/viewer/index.html （開くには --open）");
+
+    expect(formatHuman({
+      ok: true,
+      command: "viewer-launcher",
+      url: "http://127.0.0.1:43123/",
+      opened: true
+    })).toContain("確認画面: http://127.0.0.1:43123/");
   });
 
   it("wraps common errors in plain Japanese", () => {

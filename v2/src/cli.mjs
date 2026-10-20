@@ -21,7 +21,7 @@ Usage: tsugite <command> [--project directory] [--json]
   init <directory> --template file        Fill portable timing slots with sample media
   init --pack file                       Export a timing template without media
   check [--status]                        Check environment / current workflow
-  plan [--no-review] [--no-open]           Plan and open local confirmation page
+  plan [--no-review] [--open] [--no-open]  Plan and print local confirmation URL
   make                                   Make clips after plan approval
   export                                 Export after clips approval
   note <text> [--group text] [--global]    Save a private taste observation
@@ -37,8 +37,9 @@ Usage: tsugite <command> [--project directory] [--json]
 
 Transport: tsugite mcp (stdio, current project only)
 Checks are approved only in the confirmation page. No CLI approval flag exists.
+plan does not open a browser unless --open is given. --no-open is deprecated and ignored.
 Offline/mock runs need no service account. Live runs require explicit private connections.
-`;
+`
 
 export async function dispatch(command, args = [], root = process.cwd()) {
   // Shared command dispatcher is the sole mutation path for CLI and MCP.
@@ -51,17 +52,19 @@ export async function dispatch(command, args = [], root = process.cwd()) {
   if (command === 'note' && args.length === 1) return locked(root, () => addNote(root,args[0]));
   fail('Unsupported operation; approvals exist only in the confirmation page');
 }
-function openBrowser(url) {
-  const executable = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'rundll32' : 'xdg-open';
-  const args = process.platform === 'win32' ? ['url.dll,FileProtocolHandler',url] : [url];
-  const child = spawn(executable,args,{stdio:'ignore',windowsHide:true}); child.on('error',()=>{}); child.unref();
-}
+export const browser = {
+  open(url) {
+    const executable = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'rundll32' : 'xdg-open';
+    const args = process.platform === 'win32' ? ['url.dll,FileProtocolHandler',url] : [url];
+    const child = spawn(executable,args,{stdio:'ignore',windowsHide:true}); child.on('error',()=>{}); child.unref();
+  }
+};
 export async function main(argv = process.argv.slice(2)) {
   if (!argv.length || argv.includes('--help')) { process.stdout.write(help); return; }
   const command = argv[0], options = { project:{type:'string'}, json:{type:'boolean'} };
   const perCommand = {
     init:{'from-v1':{type:'string'},flatten:{type:'string'},'archive-v1':{type:'boolean'},template:{type:'string'},pack:{type:'string'}}, check:{status:{type:'boolean'}},
-    plan:{'no-review':{type:'boolean'},'no-open':{type:'boolean'},review:{type:'boolean'},port:{type:'string'}},
+    plan:{'no-review':{type:'boolean'},open:{type:'boolean'},'no-open':{type:'boolean'},review:{type:'boolean'},port:{type:'string'}},
     make:{}, export:{}, note:{group:{type:'string'},global:{type:'boolean'},pack:{type:'string'},import:{type:'string'}}, clean:{},
     plugin:{id:{type:'string'},to:{type:'string'},mock:{type:'boolean'},model:{type:'string'},output:{type:'string'},seconds:{type:'string'},'private-guide':{type:'string'}}, mcp:{}
   };
@@ -126,11 +129,12 @@ export async function main(argv = process.argv.slice(2)) {
     const port = values.port === undefined ? 0 : Number(values.port);
     if (!Number.isInteger(port) || port < 0 || port > 65535) fail('Invalid port');
     const page = await review(root,{port});
-    process.stdout.write(json({ok:true,...result,url:page.url}));
-    if (!values['no-open']) openBrowser(page.url);
+    process.stdout.write(json({ok:true,...result,url:page.url,opened:Boolean(values.open)}));
+    if (values.open) browser.open(page.url);
+    else process.stderr.write(`確認画面: ${page.url} （開くには --open）\n`);
     const close = () => { page.server.close(); page.server.closeAllConnections(); };
     process.once('SIGINT',close); process.once('SIGTERM',close);
-    return;
+    return page;
   }
   process.stdout.write(json({ok:result?.ok !== false,result}));
   if (result?.ok === false) process.exitCode=1;

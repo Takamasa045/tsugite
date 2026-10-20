@@ -20,7 +20,7 @@ The previous `.cursor/skills/verify-tsugite/` entry has been renamed to avoid co
 | Surface | Role | How a user reaches it |
 | --- | --- | --- |
 | **CLI pipeline (primary)** | validate / plan / review / doctor / run / render / gates | Repository root: `node bin/pipeline …` (PowerShell: same; do not invoke extensionless `bin/pipeline` directly) |
-| Local launcher (secondary) | Lists `project.yaml` shelves, templates, Preferences & Learnings; does not generate, render, or change Gates | `node bin/pipeline viewer-launcher --json` or `npm run viewer:open` |
+| Local launcher (secondary) | Lists `project.yaml` shelves, templates, Preferences & Learnings; does not generate, render, or change Gates | `node bin/pipeline viewer-launcher --json` (prints the URL; `npm run viewer:open` only if someone wants the browser opened) |
 | Per-project 3D viewer | Read-only snapshot under `dist/<run-id>/viewer/` | `node bin/pipeline viewer --config <project.yaml> --json` |
 | Japanese docs | Human onboarding | `README.ja.md`, `docs/onboarding/` |
 

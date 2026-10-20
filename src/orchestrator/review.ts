@@ -473,7 +473,7 @@ export async function inspectGate1Review(options: {
       issues: [
         {
           code: "gate.review_required",
-          message: `Gate 1 requires a storyboard review. Run 'bin/pipeline review --config ${options.configPath}${stateArgument} --open --json', inspect the HTML, then approve Gate 1.`,
+          message: `Gate 1 requires a storyboard review. Run 'bin/pipeline review --config ${options.configPath}${stateArgument} --json', inspect the HTML, then approve Gate 1.`,
           path: hasReview ? dataPath : reviewPath
         }
       ],

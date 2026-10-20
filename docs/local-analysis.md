@@ -46,7 +46,7 @@ node bin/pipeline analyze --config projects/my-seminar/project.yaml --actor coor
 ```sh
 node bin/pipeline analyze --config projects/my-composition/project.yaml --actor coordinator --json
 node bin/pipeline compose --config projects/my-composition/project.yaml --actor coordinator --json
-node bin/pipeline review --config projects/my-composition/project.yaml --open --json
+node bin/pipeline review --config projects/my-composition/project.yaml --json
 ```
 
 `compose` はbrief、story-guides、固定済みの `raw-analysis.json` から最大3件の構成案を `analysis/composition-proposals.json` へ決定的に生成します。元素材、manifest、Gate stateは変更しません。レビューで各案の素材順、採用区間、役割、理由、注意点を比較し、`edit.composition.proposal_id` に1件だけ選択してレビューを再生成します。未選択、解析やbriefの変更、古いレビューはGate 1で拒否されます。
@@ -74,7 +74,7 @@ edit:
 node bin/pipeline doctor --config examples/local-analysis/project-editorial.yaml --json
 node bin/pipeline validate --config examples/local-analysis/project-editorial.yaml --json
 node bin/pipeline analyze --config examples/local-analysis/project-editorial.yaml --actor coordinator --json
-node bin/pipeline review --config examples/local-analysis/project-editorial.yaml --open --json
+node bin/pipeline review --config examples/local-analysis/project-editorial.yaml --json
 ```
 
 - `doctor` は選択されたWhisper CLIとFFmpegを検査します。

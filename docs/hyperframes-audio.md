@@ -65,7 +65,7 @@ audio:
 ```sh
 node bin/pipeline validate --config projects/<job>/project.yaml --json
 node bin/pipeline plan --config projects/<job>/project.yaml --json
-node bin/pipeline review --config projects/<job>/project.yaml --open --json
+node bin/pipeline review --config projects/<job>/project.yaml --json
 node bin/pipeline run --config projects/<job>/project.yaml --dry-run --json
 ```
 

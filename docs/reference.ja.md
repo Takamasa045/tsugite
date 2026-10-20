@@ -244,8 +244,10 @@ Tsugiteリポジトリをいつもの Codex / Claude 環境で開き、案件確
 
 ```sh
 npm --prefix apps/workflow-viewer ci  # 初回のみ
-npm run viewer:open
+node bin/pipeline viewer-launcher --json
 ```
+
+コマンドが表示したURLを自分で開き、確認画面を見てからGateを承認します。`npm run viewer:open` はブラウザを自動で開きたい場合だけ使います。
 
 ランチャーと成果物サーバーは、動的に選ばれた `127.0.0.1` のポートだけで待ち受けます。終了は起動したターミナルの `Ctrl+C` です。ブラウザ通知権限、デスクトップ通知、常駐サービス、外部通知先は使いません。
 
@@ -283,7 +285,7 @@ Windowsではインストール後にterminalを開き直してください。�
 npm ci
 npm --prefix apps/workflow-viewer ci
 node bin/pipeline doctor --config examples/local-fixture/project.yaml --json
-npm run viewer:open
+node bin/pipeline viewer-launcher --json
 ```
 
 初回セットアップ成功後、Codex と Claude Code は学び昇格自動化を一度だけ尋ねます。登録には host の明示選択が必要で、辞退するとそのセットアップ中は再質問しません。詳細は [学び昇格レビュー自動化](automations/learning-promotion-review.md) です。
@@ -311,13 +313,13 @@ cp -R examples/local-fixture projects/my-first-run
 node bin/pipeline doctor --config projects/my-first-run/project.yaml --json
 node bin/pipeline validate --config projects/my-first-run/project.yaml --json
 node bin/pipeline plan --config projects/my-first-run/project.yaml --json
-node bin/pipeline review --config projects/my-first-run/project.yaml --open --json
-node bin/pipeline viewer --config projects/my-first-run/project.yaml --open --json
+node bin/pipeline review --config projects/my-first-run/project.yaml --json
+node bin/pipeline viewer --config projects/my-first-run/project.yaml --json
 node bin/pipeline run --config projects/my-first-run/project.yaml --dry-run --json
 node bin/pipeline finalize --config projects/my-first-run/project.yaml --json
 ```
 
-`review` は `dist/<run-id>/review/index.html` と `review-data.json` を生成します（字幕優先のコンテ、キャラクターシート、カット詳細、コスト、モーション）。Gate 1 の判断欄は最後に1回だけで、`state.json` は変更しません。Gate 1 の approve には canonical な出力先の2ファイルが必要です。`--open` はローカル HTML を開く場合だけ使います。
+`review` は `dist/<run-id>/review/index.html` と `review-data.json` を生成します（字幕優先のコンテ、キャラクターシート、カット詳細、コスト、モーション）。表示されたパスを自分で開き、確認してから Gate 1 を承認します。Gate 1 の判断欄は最後に1回だけで、`state.json` は変更しません。Gate 1 の approve には canonical な出力先の2ファイルが必要です。`--open` はローカル HTML を自動で開きたい場合だけ使います。
 
 `viewer` は検証済み project / plan に `state.json`、`run-log.md`、review、Gate 2 / Gate 3 QC を重ね、`dist/<run-id>/viewer/index.html` と `workflow.json` を生成します。完全なイベント履歴はまだ保存しないため、タイムラインは plan 順と現在の成果物から再構成します。
 

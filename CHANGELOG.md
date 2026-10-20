@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Stop auto-opening confirmation pages. v2 `plan` now prints the local URL and opens a browser only with `--open`; `--no-open` is accepted and ignored. v1 `review` / `viewer` still open only with `--open` and print the confirmation path so a person can open it before Gate approval.
 - Update video tooling to Remotion 4.0.536, HyperFrames 0.8.173, GSAP 3.15.0, PixVerse CLI 1.4.9, Kling CLI 0.2.3, MiniMax CLI 1.0.28, Editframe 0.60.34, Hypit 0.3.1 and Tesseract 0.4.0. Align v2 renderer peers and bind split HyperFrames runtime files to reviewed plans.
 - Preserve local rendering with the current Editframe SDK/advanced Vite API, adapt Hypit SDK and CLI contracts, keep provider CLI pins effective in execution/Doctor, and retain page-only approvals and service-specific budgets.
 - Clarify that v1 is 0.18.0 (the alpha.1 note that v1 stayed at 0.17.0 is historical), record the HyperFrames pins (both v1 and the v2 adapter now pin 0.8.173 after the tooling update above), and point current v2 docs at alpha.5. Add an owner-facing v1→v2 migration decision record at `v2/docs/migration-plan.ja.md`. Docs only; no runtime, version, or release change.

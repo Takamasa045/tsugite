@@ -105,7 +105,7 @@ export async function plan(root) {
     await write(root, '.tsugite/plan.json', value);
     const digest = hash(json(value));
     await write(root, `.tsugite/plans/${digest}.json`, value);
-    return { plan: value, digest, waitingFor: 'plan check', review: 'Use tsugite plan --review to open the confirmation page' };
+    return { plan: value, digest, waitingFor: 'plan check', review: 'Use tsugite plan to start the confirmation page; add --open to open it in a browser' };
   });
 }
 export async function currentPlan(root) {

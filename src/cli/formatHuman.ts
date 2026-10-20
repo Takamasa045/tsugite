@@ -1,4 +1,4 @@
-const HUMAN_COMMANDS = new Set(["validate", "plan", "review", "doctor"]);
+const HUMAN_COMMANDS = new Set(["validate", "plan", "review", "viewer", "viewer-launcher", "doctor"]);
 
 type IssueLike = {
   code?: string;
@@ -39,8 +39,15 @@ function commandLabel(command: string): string {
   if (command === "validate") return "検証（validate）";
   if (command === "plan") return "計画（plan）";
   if (command === "review") return "確認画面（review）";
+  if (command === "viewer") return "確認画面（viewer）";
+  if (command === "viewer-launcher") return "ランチャー（viewer-launcher）";
   if (command === "doctor") return "環境確認（doctor）";
   return command;
+}
+
+function formatConfirmationPath(path: string, opened: unknown): string {
+  if (opened === true) return `  確認画面: ${path}`;
+  return `  確認画面: ${path} （開くには --open）`;
 }
 
 function formatIssueLine(issue: IssueLike): string {
@@ -88,8 +95,28 @@ function formatPlan(record: Record<string, unknown>, issues: IssueLike[]): strin
 function formatReview(record: Record<string, unknown>, issues: IssueLike[]): string {
   if (record.ok !== true) return formatFailure("review", issues);
   const lines = ["✓ 確認画面（review）: 書き出しました"];
-  if (typeof record.review_path === "string") lines.push(`  画面: ${record.review_path}`);
+  if (typeof record.review_path === "string") {
+    lines.push(formatConfirmationPath(record.review_path, record.opened));
+  }
   if (record.gate_state === "unchanged") lines.push("  承認状態は変えていません。");
+  return lines.join("\n");
+}
+
+function formatViewer(record: Record<string, unknown>, issues: IssueLike[]): string {
+  if (record.ok !== true) return formatFailure("viewer", issues);
+  const lines = ["✓ 確認画面（viewer）: 書き出しました"];
+  if (typeof record.viewer_path === "string") {
+    lines.push(formatConfirmationPath(record.viewer_path, record.opened));
+  }
+  return lines.join("\n");
+}
+
+function formatViewerLauncher(record: Record<string, unknown>, issues: IssueLike[]): string {
+  if (record.ok !== true) return formatFailure("viewer-launcher", issues);
+  const lines = ["✓ ランチャー（viewer-launcher）: 起動しました"];
+  if (typeof record.url === "string") {
+    lines.push(formatConfirmationPath(record.url, record.opened));
+  }
   return lines.join("\n");
 }
 
@@ -117,6 +144,8 @@ export function formatHuman(payload: unknown): string {
     if (command === "validate") return formatValidate(record, issues);
     if (command === "plan") return formatPlan(record, issues);
     if (command === "review") return formatReview(record, issues);
+    if (command === "viewer") return formatViewer(record, issues);
+    if (command === "viewer-launcher") return formatViewerLauncher(record, issues);
     if (command === "doctor") return formatDoctor(record, issues);
   }
 

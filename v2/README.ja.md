@@ -27,7 +27,7 @@ node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs check --project ./my-v
 node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs plan --project ./my-video
 ```
 
-planを動かしたまま、確認ページで自分が計画を承認します。その後、同じ作業フォルダの別ターミナルでmakeとexportを実行します。動画はmy-video/out/final.mp4です。
+planを動かしたまま、表示された確認ページのURLを自分で開いて計画を承認します。ブラウザは自動では開きません。開く場合は`--open`を付けます。その後、同じ作業フォルダの別ターミナルでmakeとexportを実行します。動画はmy-video/out/final.mp4です。
 
 ```sh
 node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs make --project ./my-video

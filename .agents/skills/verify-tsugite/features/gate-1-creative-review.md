@@ -11,7 +11,7 @@ Gate 1 creative review writes a local storyboard HTML and `review-data.json` so 
 ## How to get to it (user POV)
 
 - Run `node bin/pipeline review --config <project.yaml> --output <review-directory>` to write local review files.
-- Open the resulting `index.html` manually for the static review surface; `--open` is intentionally excluded from automated verification.
+- Tell the user the printed `review_path` so they can open `index.html` themselves before Gate approval. `--open` is intentionally excluded from automated verification and from the default procedure.
 - The loopback launcher can display review artifacts, but that served browser route is a separate uncovered entry point.
 
 The command synopsis above uses placeholders; the isolated runnable recipe follows.
