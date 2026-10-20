@@ -72,6 +72,8 @@ docs/onboarding/setup-contract.ja.mdの安全境界を守って、
 
 安定版の **v1**（`0.18.0`）です。すでにリポジトリがあり、コマンドを自分で打つ場合は、見本の制作案件で「内容の検証（`validate`）→ 計画作り（`plan`）→ 確認画面（`review` の HTML）」までを手元で確かめます。課金・外部サービス・書き出し（`render`）は使いません。確認画面は自動では開きません。
 
+macOS / Linux:
+
 ```sh
 npm ci
 export TSUGITE_PROJECTS_HOME=/tmp/tsugite-quickstart
@@ -82,9 +84,21 @@ node bin/pipeline plan --config "$TSUGITE_PROJECTS_HOME/storyboard-local/project
 node bin/pipeline review --config "$TSUGITE_PROJECTS_HOME/storyboard-local/project.yaml"
 ```
 
+Windows の PowerShell:
+
+```powershell
+npm ci
+$env:TSUGITE_PROJECTS_HOME = "$env:TEMP\tsugite-quickstart"
+New-Item -ItemType Directory -Force -Path $env:TSUGITE_PROJECTS_HOME | Out-Null
+Copy-Item -Recurse examples/storyboard-local "$env:TSUGITE_PROJECTS_HOME\storyboard-local"
+node bin/pipeline validate --config "$env:TSUGITE_PROJECTS_HOME\storyboard-local\project.yaml"
+node bin/pipeline plan --config "$env:TSUGITE_PROJECTS_HOME\storyboard-local\project.yaml"
+node bin/pipeline review --config "$env:TSUGITE_PROJECTS_HOME\storyboard-local\project.yaml"
+```
+
 最後のコマンドは `確認画面: …（開くには --open）` とパスを出します。そのパスを自分で開いてください。ブラウザを自動で開くときだけ `--open` を付けます。`TSUGITE_PROJECTS_HOME` を使うと、本物の制作案件を置く `projects/` には書き込みません。
 
-必要なソフトは Node.js 22.12以上の22.x、npm 10以上、FFmpeg（`ffprobe`を含む）です。詳しい手引きは [はじめての継手](docs/onboarding/first-video.ja.md) です。v2 は alpha です。試す場合は [v2/README](v2/README.md) を見てください。
+必要なソフトは Node.js 22.12以上の22.x、npm 10以上、FFmpeg（`ffprobe`を含む）です。v1の詳しいコマンドは [技術リファレンス](docs/reference.ja.md#コマンド) です。Windowsの注意は [Windowsネイティブ利用ガイド](docs/windows.md) です。v2 は alpha です。試す場合は [v2/README](v2/README.md) を見てください。
 
 ## こんな頼み方ができます
 

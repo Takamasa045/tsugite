@@ -93,15 +93,18 @@ describe("README onboarding contract", () => {
   it("documents an isolated v1 CLI quick start through the confirmation page", async () => {
     for (const readme of READMES) {
       const text = await readFile(readme.path, "utf8");
-      expect(text, readme.path).toMatch(/## (Quick start|クイックスタート)/);
-      expect(text, readme.path).toContain("TSUGITE_PROJECTS_HOME");
-      expect(text, readme.path).toContain("examples/storyboard-local");
-      expect(text, readme.path).toContain("node bin/pipeline validate");
-      expect(text, readme.path).toContain("node bin/pipeline plan");
-      expect(text, readme.path).toContain("node bin/pipeline review");
-      expect(text, readme.path).toContain("--open");
-      expect(text, readme.path).toContain("docs/onboarding/first-video.ja.md");
-      expect(text, readme.path).toContain("v2/README.md");
+      const heading = readme.path === "README.md" ? "## Quick start" : "## クイックスタート";
+      const section = sectionByHeading(text, heading);
+      expect(section, readme.path).toContain("TSUGITE_PROJECTS_HOME");
+      expect(section, readme.path).toContain("$env:TSUGITE_PROJECTS_HOME");
+      expect(section, readme.path).toContain("examples/storyboard-local");
+      expect(section, readme.path).toContain("node bin/pipeline validate");
+      expect(section, readme.path).toContain("node bin/pipeline plan");
+      expect(section, readme.path).toContain("node bin/pipeline review");
+      expect(section, readme.path).toContain("--open");
+      expect(section, readme.path).toMatch(/docs\/reference(?:\.ja)?\.md/);
+      expect(section, readme.path).toContain("v2/README.md");
+      expect(section, readme.path).not.toContain("docs/onboarding/first-video.ja.md");
     }
   });
 
