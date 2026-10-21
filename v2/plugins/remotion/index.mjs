@@ -2,8 +2,10 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {muxSoftCaptions} from './subtitles.mjs';
+import {publicClipName} from './clips.mjs';
 export default {
   quote:()=>({service:'remotion',credits:0}),
+  supportsStills:true,
   async runtime(){
     const packages={};
     for(const name of ['remotion','@remotion/bundler','@remotion/renderer','@remotion/media','react','react-dom']){
@@ -23,11 +25,12 @@ export default {
     const browser=process.env.TSUGITE_BROWSER;
     if(!browser||!path.isAbsolute(browser)||(await fs.stat(browser)).isDirectory())throw new Error('Set TSUGITE_BROWSER to an existing local browser; automatic downloads are disabled');
     const publicDir=path.join(scratch,'public');await fs.mkdir(publicDir);
-    for(let i=0;i<inputs.length;i++)await fs.copyFile(inputs[i],path.join(publicDir,`clip-${i}.mp4`));
+    const clipNames=inputs.map((file,i)=>publicClipName(i,file));
+    for(let i=0;i<inputs.length;i++)await fs.copyFile(inputs[i],path.join(publicDir,clipNames[i]));
     for(let i=0;i<audio.length;i++)await fs.copyFile(audio[i],path.join(publicDir,`audio-${i}${path.extname(audio[i])}`));
     const [{bundle},{selectComposition,renderMedia}]=await Promise.all([import('@remotion/bundler'),import('@remotion/renderer')]);
     const serveUrl=await bundle({entryPoint:fileURLToPath(new URL('./composition.jsx',import.meta.url)),publicDir,outDir:path.join(scratch,'bundle'),onProgress:()=>{}});
-    const inputProps={timeline,audioNames:audio.map((file,i)=>`audio-${i}${path.extname(file)}`)};
+    const inputProps={timeline,clipNames,audioNames:audio.map((file,i)=>`audio-${i}${path.extname(file)}`)};
     const composition=await selectComposition({serveUrl,id:'Tsugite',inputProps,browserExecutable:browser});
     await renderMedia({serveUrl,composition,inputProps,browserExecutable:browser,codec:'h264',outputLocation:output,concurrency:1,logLevel:'error'});
     await muxSoftCaptions({timeline,output,scratch});

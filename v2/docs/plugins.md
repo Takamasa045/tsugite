@@ -36,12 +36,16 @@ Each package needs name, version, license and `tsugite` metadata:
 ```
 
 The default export implements `quote(task)` returning `{service, credits}` and
-`make({task, output, sample, idempotencyKey, onSubmitted})` returning `{credits}`.
+`make({task, output, sample, inputs, idempotencyKey, onSubmitted})` returning `{credits}`.
 Output is a regular project-local MP4 or WAV and is probed/hash-checked by the core.
 Call and await `onSubmitted({providerJobId})` before polling an asynchronous job;
-the core persists its nonsecret job identity while retaining the reservation. The sample
-argument is the first local input, if present. Offline `renderer` implementations
-provide `render({timeline, inputs, audio, output, scratch})`. Optional `runtime()`
+the core persists its nonsecret job identity while retaining the reservation. `inputs`
+are the resolved `make.inputs` files (project-local, hashed into the plan, not timeline
+clips). `sample` is the first of those files, or the first `use` clip when none were
+declared. Image-to-video plugins must read `inputs`, not assume `sample` is a still.
+Offline `renderer` implementations provide `render({timeline, inputs, audio, output, scratch})`.
+Set `supportsStills: true` only when the renderer can hold PNG/JPEG/WebP stills;
+otherwise planning rejects that combination. Optional `runtime()`
 metadata is bound to the plan; the Remotion plugin records tested package versions
 and existing-browser identity. Source/render calls receive cloned plan inputs. The timeline is versioned,
 sequential, with format, total seconds and clips `{id,path,seconds,taskKey?}`.

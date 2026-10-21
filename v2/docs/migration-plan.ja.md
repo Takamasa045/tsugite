@@ -43,10 +43,10 @@
 
 | 機能 | 手元の案件数 | v2のいま | 採用した方針 | 短い理由 | 根拠 |
 | --- | --- | --- | --- | --- | --- |
-| Remotion（標準の動画組み立て） | 62 | 任意プラグインあり。実機での書き出し証拠あり。確認ページを通る | **v2 で対応** | 件数が最も多い。v2に実書き出し経路がある | [`v2/plugins/remotion`](../plugins/remotion/constraints.md)、[要件 P06](requirements.md) |
+| Remotion（標準の動画組み立て） | 62 | 任意プラグインあり。実機での書き出し証拠あり。確認ページを通る。静止画の保持は段階1で追加 | **v2 で対応** | 件数が最も多い。v2に実書き出し経路がある | [`v2/plugins/remotion`](../plugins/remotion/constraints.md)、[要件 P06](requirements.md) |
 | Remotionの案件専用モーション・キャラ構成 | （上の62件に含まれる） | `init --from-v1` は受け付けない。完成動画のコピー（`--flatten`）か、元データの保管（`--archive-v1`）だけ | **v1 に残す** | 構成グラフをv2へ直に移す機能はない。無理に変換すると編集できなくなる | [`v2/src/migrate.mjs`](../src/migrate.mjs)、[移行手順](phase-two.md#copying-a-complex-v1-project) |
-| PixVerse | 20 | HTTP経路と合成テストあり。**実課金の受け入れは未了**。実験枠 | **v2 で対応** | 件数が多い。段階2の有料確認の主対象 | [`v2/plugins/pixverse`](../plugins/pixverse/constraints.md)、[要件 P08](requirements.md) |
-| ElevenLabs | 14 | 音声のHTTP経路と合成テストあり。**実課金の受け入れは未了**。実験枠 | **v2 で対応** | 件数が多い。段階2の有料確認の主対象 | [`v2/plugins/elevenlabs`](../plugins/elevenlabs/constraints.md)、[要件 P10](requirements.md) |
+| PixVerse | 20 | V6 の text / image-to-video / transition のHTTP経路と合成テストあり。**実課金の受け入れは未了**。実験枠 | **v2 で対応** | 件数が多い。段階2の有料確認の主対象 | [`v2/plugins/pixverse`](../plugins/pixverse/constraints.md)、[要件 P08](requirements.md) |
+| ElevenLabs | 14 | 公式モデルと voice_settings 付き音声HTTP経路と合成テストあり。**実課金の受け入れは未了**。実験枠 | **v2 で対応** | 件数が多い。段階2の有料確認の主対象 | [`v2/plugins/elevenlabs`](../plugins/elevenlabs/constraints.md)、[要件 P10](requirements.md) |
 | HyperFrames | 8 | v2側は **0.8.173** 固定の実験プラグイン。実機の音・字幕書き出し証拠は旧版0.8.24で取得。v1本体も **0.8.173** 固定 | **実験枠（labs）のまま** | 版はv1と揃ったが、0.8.173での実機書き出し証拠を取り直す必要がある | [`v2/plugins/hyperframes`](../plugins/hyperframes/constraints.md)、v1は root `package.json` の 0.8.173 |
 | MiniMax | 8 | v2の実行プラグインはない。v1由来の実験ソースとして分離済み | **実験枠（labs）のまま** | 件数はあるが、v2に実行経路がない。段階1で無理に新プラグインを増やさない | [実験枠の一覧](../labs/README.md)、[要件 P13](requirements.md) |
 | Editframe | 6 | v2の実行プラグインはない。v1の任意ランタイム。配布tarballには入れていない | **実験枠（labs）のまま** | 未解決のHigh依存アラートがある。v2配布物からは外してある | [alpha.5配布](release-alpha5.md) の GitHub Dependabot [#131](https://github.com/Takamasa045/tsugite/security/dependabot/131)、[実験枠の一覧](../labs/README.md) |
@@ -74,8 +74,21 @@
 - 有料APIの実行、秘密情報の記入、`projects/` の変更。
 - 案件名や個人の制作内容。
 
+## 段階1の進捗（2026-10-21）
+
+段階1のうち、課金なしで閉じられる差をこの日付で埋めました。有料API・実 render・`projects/` の変更はありません。v1コードの流用・importもしていません。
+
+| 対象 | 埋めた差 | 残っている差 |
+| --- | --- | --- |
+| Remotion（標準組み立て） | 静止画（PNG/JPEG/WebP、明示秒数）を local と同じタイムラインで保持。live は拡張子を保って `Img` に渡す。案件専用モーション・キャラは対象外のまま | 案件専用プリセット/モーション/キャラは **v1 に残す**。cover fit やクリップ間トランジションは未実装。実機 Remotion 書き出しは既存どおり任意ランタイム |
+| PixVerse | `make.inputs` で計画に束縛したローカル静止画。V6 の image-to-video と first/last-frame transition を公式HTTPで実装。音声オンは公式 V6 単価 7/9/12/23 credits/s。20 MB 超は計画時拒否。合成アップロード/生成テストあり | extend / modify / upscale / reference / motion-control / template / voice / music は未実装。I2V・transition の実課金受け入れは段階2 |
+| ElevenLabs | 公式モデル許可（`eleven_multilingual_v2` / `eleven_turbo_v2_5` / `eleven_flash_v2_5` / `eleven_v3`）と `voice_settings` / `language_code` / `apply_text_normalization` | v1 のホスト型MCP v4/Turbo はこのHTTP経路ではない。music / SFX は未実装。実課金・実voice受け入れは段階2 |
+| コア | `make.inputs` を assets 内ファイルに限定し、ハッシュを計画へ束縛。タイムラインクリップにはしない | 生成リクエストの v1 自動取り込みはしない（既存どおり警告のみ） |
+
+段階2（P08 / P10 / B04 の実課金受け入れ）と、HyperFrames / MiniMax / Editframe / Hypit / Kling / Tesseract の実験枠は、この進捗の対象外です。
+
 ## まだ分からないこと
 
 - 手元の案件数は所有者提供です。リポジトリでは再集計していません。
-- v2のテスト件数は、この文書のために再実行していません。以前の記録は [verification.md](verification.md) と [alpha.5リリース](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.5)（当時のローカルv2: 88件成功、任意ランタイムskip 5）に日付付きで残しています。
+- v2のテストは 2026-10-21 に再実行しました。`npm --prefix v2 run check` は **123 passed / 0 failed / skip 5**（任意ランタイムと明示Whisper）。以前の記録は [verification.md](verification.md) と [alpha.5リリース](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.5) に日付付きで残しています。
 - HyperFrames は v1・v2アダプターとも 0.8.173 に固定しました（`package.json` と pin ファイル）。以前の 0.8.75 / 0.8.24 の記述は旧版です。

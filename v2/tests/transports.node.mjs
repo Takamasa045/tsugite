@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {createTransport as pixverse,payload as pixPayload} from '../plugins/pixverse/transport.mjs';
+import {createTransport as pixverse,payload as pixPayload,liveBody,generatePath} from '../plugins/pixverse/transport.mjs';
 import {createTransport as kling,billing,payload as klingPayload} from '../plugins/kling/transport.mjs';
 import {createTransport as elevenlabs,payload as voicePayload} from '../plugins/elevenlabs/transport.mjs';
 import {channel} from '../plugins/pixverse/http.mjs';
@@ -36,6 +36,51 @@ test('HTTP transport rejects redirects, oversized bodies, unapproved URLs and se
   let count=0;const http=channel({...config,header:'API-KEY',fetch:async()=>{count++;return new Response('x',{headers:{'content-length':'999999999'}});}});await assert.rejects(http.json('/a'),/Invalid or oversized/);for(const value of ['http://media.fixture.test/a','https://api.fixture.test/a','https://user:pass@media.fixture.test/a','https://127.0.0.1/a'])await assert.rejects(http.media(value),/origin/);assert.equal(count,1);
   const redirect=channel({...config,header:'API-KEY',fetch:async(_,o)=>{assert.equal(o.redirect,'error');throw Error(key);}});await assert.rejects(redirect.json('/a'),e=>!e.message.includes(key));assert.throws(()=>kling({...config,key:undefined,fetch:async()=>{}}),/credential/);
 });
+test('PixVerse image and transition upload before generate, and never send JSON content-type on multipart',async t=>{
+  const file=await output(t),frame=path.join(path.dirname(file),'frame.png');
+  await fs.writeFile(frame,'fixture-png-bytes');
+  const imageTask={prompt:'synthetic fixture',seconds:5,options:{mode:'image',quality:'360p'}};
+  const transitionTask={prompt:'synthetic fixture',seconds:5,options:{mode:'transition',quality:'540p',audio:true}};
+  assert.equal(generatePath(imageTask),'/openapi/v2/video/img/generate');
+  assert.equal(generatePath(transitionTask),'/openapi/v2/video/transition/generate');
+  assert.deepEqual(liveBody(imageTask,['123456789']),{model:'v6',prompt:'synthetic fixture',duration:5,quality:'360p',img_id:123456789,generate_audio_switch:false});
+  assert.deepEqual(liveBody(transitionTask,['1','2']),{model:'v6',prompt:'synthetic fixture',duration:5,quality:'540p',first_frame_img:1,last_frame_img:2,generate_audio_switch:true});
+  assert.equal(liveBody(video,[]).generate_audio_switch,undefined);
+  assert.equal(liveBody({...video,options:{audio:true}},[]).generate_audio_switch,true);
+  const calls=[];let persisted=false;
+  const transport=pixverse({...config,fetch:async(url,options)=>{
+    calls.push({url,options});
+    if(url.includes('/image/upload')){
+      assert.equal(options.headers['Content-Type'],undefined);
+      assert.equal(options.headers['API-KEY'],key);
+      assert.ok(options.body instanceof FormData);
+      return json({ErrCode:0,Resp:{img_id:123456789,img_url:'https://media.fixture.test/frame.png'}});
+    }
+    if(url.includes('/img/generate')){
+      assert.equal(JSON.parse(options.body).img_id,123456789);
+      assert.equal(JSON.parse(options.body).aspect_ratio,undefined);
+      return json({ErrCode:0,Resp:{video_id:99}});
+    }
+    if(url.includes('/result/')){assert.ok(persisted);return json({ErrCode:0,Resp:{id:99,status:1,url:'https://media.fixture.test/clip.mp4'}});}
+    assert.deepEqual(options.headers,{});
+    return new Response('fixture video bytes');
+  }});
+  const result=await transport.make({task:imageTask,output:file,inputs:[frame],onSubmitted:async r=>{assert.equal(r.providerJobId,'99');persisted=true;}});
+  assert.equal(result.credits,null);
+  assert.equal(await fs.readFile(file,'utf8'),'fixture video bytes');
+  assert.equal(calls.filter(x=>x.url.includes('/image/upload')).length,1);
+  assert.throws(()=>liveBody(imageTask,[]),/uploaded image id/);
+});
+test('ElevenLabs forwards documented models and voice settings without inventing credits',async t=>{
+  const file=await output(t),task={prompt:'spoken fixture',seconds:3,options:{voice_id:'fixture_voice',model:'eleven_turbo_v2_5',stability:0.4,similarity_boost:0.8,style:0.1,speed:1.1,use_speaker_boost:false,language_code:'ja',apply_text_normalization:'on'}};
+  let body;
+  const transport=elevenlabs({...config,fetch:async(url,options)=>{assert.match(url,/fixture_voice\/with-timestamps/);body=JSON.parse(options.body);return json({audio_base64:Buffer.from('fixture audio').toString('base64'),alignment:null});},convert:async(input,out)=>fs.copyFile(input,out)});
+  assert.equal((await transport.make({task,output:file,onSubmitted:async()=>{}})).credits,null);
+  assert.deepEqual(body,{text:'spoken fixture',model_id:'eleven_turbo_v2_5',voice_settings:{stability:0.4,similarity_boost:0.8,style:0.1,speed:1.1,use_speaker_boost:false},language_code:'ja',apply_text_normalization:'on'});
+});
 test('unsupported models, task identifiers and settings fail before any request',()=>{
   assert.throws(()=>pixPayload({...video,options:{model:'unsupported'}}));assert.throws(()=>klingPayload(video,'../escape'));assert.throws(()=>voicePayload({...video,options:{voice_id:'../voice'}}));assert.throws(()=>pixPayload({...video,seconds:16}));
+  assert.throws(()=>voicePayload({prompt:'spoken',seconds:3,options:{voice_id:'fixture_voice',model:'eleven_v4_turbo'}}));
+  assert.throws(()=>voicePayload({prompt:'spoken',seconds:3,options:{voice_id:'fixture_voice',speed:0.5}}));
+  assert.throws(()=>pixPayload({...video,options:{mode:'other'}}));
 });

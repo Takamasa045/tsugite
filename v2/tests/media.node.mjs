@@ -35,6 +35,41 @@ test('audio/subtitle modification invalidates plan and unsafe media inputs fail'
   await settings(root,{audio:[{path:'../escape.wav'}]});await assert.rejects(plan(root),/assets/);
   await settings(root,{audio:[],captions:[{start:1,end:0,text:'invalid'}]});await assert.rejects(plan(root),/caption end/);
 });
+test('still images need explicit seconds and render as held frames',async t=>{
+  const {root}=await fixture(t);
+  await command('ffmpeg',['-nostdin','-v','error','-n','-f','lavfi','-i','color=c=red:s=360x640','-frames:v','1',path.join(root,'assets/hold.png')]);
+  await settings(root,{length:'1s',use:[{path:'assets/hold.png'}]});
+  await assert.rejects(plan(root),/explicit seconds/);
+  await settings(root,{use:[{path:'assets/hold.png',seconds:1,audio:true}]});
+  await assert.rejects(plan(root),/no source audio/);
+  await settings(root,{use:[{path:'assets/hold.png',seconds:1}]});
+  const output=await render(t,root);
+  assert.equal(output.width,360);
+  assert.equal(output.height,640);
+  assert.ok(Math.abs(output.seconds-1)<0.15);
+});
+test('PixVerse image mocks bind local still hashes and reject text-mode inputs',async t=>{
+  const {root}=await fixture(t);await addPlugin(root,path.join(plugins,'pixverse'));
+  await command('ffmpeg',['-nostdin','-v','error','-n','-f','lavfi','-i','color=c=blue:s=360x640','-frames:v','1',path.join(root,'assets/first.png')]);
+  await settings(root,{length:'5s',use:[],execution:'mock',make:[{id:'shot',with:'pixverse',prompt:'mock picture',seconds:5,options:{mode:'image'}}]});
+  await assert.rejects(plan(root),/exactly one local image/);
+  await settings(root,{make:[{id:'shot',with:'pixverse',prompt:'mock picture',seconds:5,inputs:['assets/first.png']}]});
+  await assert.rejects(plan(root),/does not take local media/);
+  await settings(root,{make:[{id:'shot',with:'pixverse',prompt:'mock picture',seconds:5,options:{mode:'image'},inputs:['assets/first.png']}]});
+  const planned=await plan(root);
+  assert.equal(planned.plan.tasks[0].options.mode,'image');
+  assert.equal(planned.plan.tasks[0].inputs[0].path,'assets/first.png');
+  assert.equal(planned.plan.tasks[0].inputs[0].hash,await fileHash(root,'assets/first.png'));
+  assert.ok(planned.plan.tasks[0].inputs[0].bytes>0);
+  await fs.appendFile(path.join(root,'assets/first.png'),'changed');
+  await assert.rejects(currentPlan(root),/no longer matches/);
+  await settings(root,{make:[{id:'shot',with:'pixverse',prompt:'mock picture',seconds:5,options:{audio:true}}]});
+  const voiced=await plan(root);
+  assert.equal(voiced.plan.timeline.clips.find(clip=>clip.id==='shot').audio,true);
+  await fs.writeFile(path.join(root,'assets/oversize.png'),Buffer.alloc(20*1024*1024+1));
+  await settings(root,{make:[{id:'shot',with:'pixverse',prompt:'mock picture',seconds:5,options:{mode:'image'},inputs:['assets/oversize.png']}]});
+  await assert.rejects(plan(root),/20 MB/);
+});
 test('service video and narration mocks run with zero provider credits and are content bound',async t=>{
   const {root}=await fixture(t);await addPlugin(root,path.join(plugins,'pixverse'));await addPlugin(root,path.join(plugins,'elevenlabs'));
   await settings(root,{length:'8s',execution:'mock',make:[{id:'shot',with:'pixverse',prompt:'mock picture',seconds:5},{id:'voice',with:'elevenlabs',kind:'audio',prompt:'mock voice',seconds:3,options:{voice_id:'fixture-voice'}}]});

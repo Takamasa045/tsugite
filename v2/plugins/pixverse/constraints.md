@@ -1,6 +1,21 @@
 # pixverse source
 
-Labs. Implements the documented text generation protocol with synthetic HTTP tests; no live paid acceptance is claimed. Offline mode blocks the network entry. Explicit mock mode produces synthetic zero-credit media and validates the same request/payload contract as planning. Live quotes use the dated per-quality estimate and reject a `max_credits` below that estimate. Live mode requires an explicitly enabled private connection, a service budget, and a page-approved plan. Keys are read lazily from the chosen environment reference, never written to the project. Credentials never belong in source options.
+Labs. Implements the documented V6 text, image-to-video and first/last-frame
+transition protocols with synthetic HTTP tests; no live paid acceptance is
+claimed. Image and transition tasks take project-local PNG/JPEG/WebP files in
+`make.inputs` (one still, or first then last). Those files are hashed into the
+plan and are not timeline clips. Live image mode uploads the still, then calls
+the image generate endpoint; transition uploads both stills. Aspect is omitted
+for image/transition because framing follows the uploaded stills. Offline mode
+blocks the network entry. Explicit mock mode produces synthetic zero-credit
+media and validates the same request/payload contract as planning. Live quotes
+use the dated V6 per-quality rates for all three modes: audio-off 5/7/9/18
+credits/s and audio-on 7/9/12/23 credits/s, and reject a `max_credits` below
+that estimate. Inputs over 20 MB fail at planning. Verify actual
+image/transition charges before paid use. Live mode requires an explicitly enabled private connection, a service
+budget, and a page-approved plan. Keys are read lazily from the chosen
+environment reference, never written to the project. Credentials never belong in
+source options.
 
 Unknown failures/credits hold the reservation; do not infer refunds or automatically repeat submission. Inspect the source package and the connection guide before enabling live mode. A local reservation is not a vendor-enforced remote billing cap.
 

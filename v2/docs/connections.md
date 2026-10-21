@@ -45,10 +45,21 @@ The CLI/MCP cannot approve or settle a job.
 ## Implemented protocol subset
 
 - PixVerse V6 text-to-video: default 360p, project aspect, 1–15 integer seconds,
-  optional seed. The quote uses the documented rate snapshot dated 2026-10-18
-  and can reserve a larger explicit `max_credits`. `Resp.credits` is preliminary,
+  optional seed. The quote uses the documented V6 snapshot dated 2026-10-18
+  (audio-off 5/7/9/18 credits/s, audio-on 7/9/12/23) and can reserve a larger
+  explicit `max_credits`. `Resp.credits` is preliminary,
   so a received video still needs final ledger reconciliation. Each request has
   a new trace UUID; this is not a server idempotency guarantee.
+- PixVerse V6 image-to-video and first/last-frame transition: the same duration
+  and quality bounds. `options.mode` is `image` (one `make.inputs` still) or
+  `transition` (first then last). Local PNG/JPEG/WebP files are hashed into the
+  plan, uploaded to `/openapi/v2/image/upload`, then sent as `img_id` or
+  `first_frame_img` / `last_frame_img`. Aspect is not sent; framing follows the
+  stills. Optional `options.audio: true` sets `generate_audio_switch` and uses
+  the dated V6 audio-on rates (7/9/12/23 credits/s). Audio-off remains
+  5/7/9/18 credits/s. PNG/JPEG/WebP inputs over 20 MB fail at planning.
+  Extend, modify, upscale, reference, motion-control, templates, voice and music
+  remain unimplemented.
 - Kling 3.0 text-to-video: default 720p, project aspect, 3–15 integer seconds,
   audio off and single shot. Explicit positive `max_credits` is required. The
   selected endpoint for international API users is
@@ -56,12 +67,16 @@ The CLI/MCP cannot approve or settle a job.
   before creation. Only video resource-unit billing can settle automatically;
   cash/currency billing is retained as unknown, never converted to credits.
 - ElevenLabs timestamped text-to-speech: explicitly chosen voice, default
-  `eleven_multilingual_v2`, MP3 response converted locally to PCM WAV. Explicit
-  positive `max_credits` is required. The synchronous endpoint does not document
-  final credits or a durable task ID; neither is invented. Verify actual charged
-  credits in the service and reconcile them in the page. The requested seconds
-  describes the approved timeline slot; review actual narration length before
-  accepting clips.
+  `eleven_multilingual_v2`, optional `eleven_turbo_v2_5` / `eleven_flash_v2_5` /
+  `eleven_v3`, MP3 response converted locally to PCM WAV. Official
+  `voice_settings` (`speed` 0.7–1.2), `language_code` and
+  `apply_text_normalization` may be set.
+  Explicit positive `max_credits` is required. The synchronous endpoint does not
+  document final credits or a durable task ID; neither is invented. Verify actual
+  charged credits in the service and reconcile them in the page. The requested
+  seconds describes the approved timeline slot; review actual narration length
+  before accepting clips. v1 hosted-MCP Eleven v4 / Turbo is not this transport.
+  Music and sound-effects endpoints are not implemented.
 
 The local budget bounds accepted reservations and future calls. It cannot force
 a remote service to honor an estimate, refund a failure or charge no more than
@@ -76,8 +91,12 @@ identity recovery, callback ordering, unknown billing, response limits, secret
 error redaction and credential-free downloads. They do not establish actual
 provider acceptance, prices for your account or paid execution reliability.
 
-Reviewed 2026-10-18:
+Reviewed 2026-10-18, with image/transition and speech-setting fields checked
+again on 2026-10-21:
 [PixVerse request](https://docs.platform.pixverse.ai/text-to-video-13016634e0),
+[image upload](https://docs.platform.pixverse.ai/upload-image-13016631e0),
+[image-to-video](https://docs.platform.pixverse.ai/image-to-video-generation-13016633e0),
+[transition](https://docs.platform.pixverse.ai/first-and-last-frame-video-43051213e0),
 [status](https://docs.platform.pixverse.ai/query-task-status-43051212e0),
 [pricing/ledger distinction](https://docs.platform.pixverse.ai/pixverse-api-pricing-2394995m0),
 [Kling 3.0](https://kling.ai/document-api/api/video/3-0-omni/text-to-video),

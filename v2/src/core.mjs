@@ -6,7 +6,7 @@ import { hash, json, fail, read, readJSON, write, inside, exists, locked, fileHa
 import { units, validateBudget, reserve, settle, budgetView } from './budget.mjs';
 import { plugin, pluginID } from './plugins.mjs';
 import { taste } from './taste.mjs';
-import {inputClips,audioTracks,captions,arrange} from './timeline.mjs';
+import {inputClips,sourceInputs,audioTracks,captions,arrange} from './timeline.mjs';
 import { sample, probe, command } from '../plugins/local/index.mjs';
 import { normalizeLanguage } from './i18n.mjs';
 
@@ -44,7 +44,7 @@ export async function config(root) {
   if (c.checks && (Object.keys(c.checks).some(x => x !== 'auto_clips') || typeof c.checks.auto_clips !== 'boolean')) fail('Invalid checks settings');
   const ids = new Set();
   for (const m of c.make) {
-    if (!m || Object.keys(m).some(x => !['id','with','prompt','seconds','kind','options','start','volume'].includes(x))) fail('Invalid make task');
+    if (!m || Object.keys(m).some(x => !['id','with','prompt','seconds','kind','options','start','volume','inputs'].includes(x))) fail('Invalid make task');
     pluginID(m.id); pluginID(m.with);
     if (ids.has(m.id) || typeof m.prompt !== 'string' || m.prompt.length > 10000 || !Number.isFinite(m.seconds) || m.seconds <= 0 || m.seconds > 600) fail('Invalid or duplicate make task');
     if(!['video','audio'].includes(m.kind??'video'))fail('Unsupported generated media kind');
@@ -70,14 +70,17 @@ async function buildPlan(root) {
     if(json(configuredFields)!==json(resolvedFields))fail('Plugin normalization may only fill source options');
     if (!manifest.capabilities.includes('source') || typeof implementation.make !== 'function') fail('Plugin cannot make clips');
     if(manifest.mediaKinds&&!manifest.mediaKinds.includes(task.kind??'video'))fail('Plugin cannot make requested media kind');
-    const quote = await implementation.quote(structuredClone(task));
+    const files=await sourceInputs(root,configuredTask.inputs);
+    const bound=files.length?{...task,inputs:files}:task;
+    const quote = await implementation.quote(structuredClone(bound));
     if(c.execution==='mock'&&quote.credits!==0)fail('Mock plugins must quote zero credits');
     units(quote.credits); pluginID(quote.service);
     plugins[task.with] = manifest;
-    const identity = hash(json({ task, plugin: manifest.digest,settings:manifest.settings,mode:c.execution??'offline', attempt: retries[task.id] ?? 0 }));
-    tasks.push({ ...task, quote, key: identity });
+    const identity = hash(json({ task:bound, plugin: manifest.digest,settings:manifest.settings,mode:c.execution??'offline', attempt: retries[task.id] ?? 0 }));
+    tasks.push({ ...bound, quote, key: identity });
   }
   const clips=arrange(inputs,tasks,c.length);
+  if(clips.some(clip=>clip.still)&&!renderer.implementation.supportsStills)fail('This renderer does not hold still images');
   for(const task of tasks.filter(t=>t.kind==='audio')) {
     const start=task.start??0,volume=task.volume??1;
     if(!Number.isFinite(start)||start<0||start+task.seconds>c.length+0.02||!Number.isFinite(volume)||volume<0||volume>4)fail('Generated audio exceeds timeline');
@@ -178,7 +181,8 @@ export async function make(root) {
           s.jobs[task.key].providerJobId=receipt.providerJobId;
           await saveState(root,s,{action:'provider-submitted',id:task.id,providerJobId:receipt.providerJobId});
         };
-        const result = await implementation.make({ task:structuredClone(task), output, sample: p.inputs.length ? await inside(root, p.inputs[0].path) : undefined, idempotencyKey: task.key,onSubmitted });
+        const files=await Promise.all((task.inputs??[]).map(item=>inside(root,item.path)));
+        const result = await implementation.make({ task:structuredClone(task), output, sample: files[0]??(p.inputs.length ? await inside(root, p.inputs[0].path) : undefined), inputs:files, idempotencyKey: task.key,onSubmitted });
         await probe(output,task.kind==='audio'?'audio':'video');
         settle(s.ledger, task.key, result.credits);
         s.jobs[task.key] = { ...s.jobs[task.key],id: task.id, path: relative, status: 'done', hash: await fileHash(root, relative) };
