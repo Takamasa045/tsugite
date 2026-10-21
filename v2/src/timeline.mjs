@@ -13,7 +13,9 @@ export async function sourceInputs(root,value) {
     if(typeof media!=='string'||!media.startsWith('assets/'))fail('Make inputs must be inside assets/');
     const file=await asset(root,media),stat=await fs.stat(file);
     if(stat.size>32*1024*1024)fail('Make input exceeds 32 MB');
-    result.push({path:media,hash:await fileHash(root,media),bytes:stat.size});
+    const bound={path:media,hash:await fileHash(root,media),bytes:stat.size};
+    try{const metadata=await probe(file);if(Number.isFinite(metadata.seconds)&&metadata.seconds>0)bound.seconds=metadata.seconds;}catch{}
+    result.push(bound);
   }
   return result;
 }

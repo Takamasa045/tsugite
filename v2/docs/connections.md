@@ -58,8 +58,21 @@ The CLI/MCP cannot approve or settle a job.
   stills. Optional `options.audio: true` sets `generate_audio_switch` and uses
   the dated V6 audio-on rates (7/9/12/23 credits/s). Audio-off remains
   5/7/9/18 credits/s. PNG/JPEG/WebP inputs over 20 MB fail at planning.
-  Extend, modify, upscale, reference, motion-control, templates, voice and music
-  remain unimplemented.
+- PixVerse V6 video extend: one local MP4/MOV/WebM in `make.inputs`, uploaded
+  through `/openapi/v2/media/upload`, then `/openapi/v2/video/extend/generate`
+  with `video_media_id`. `seconds` is the 1–15s extension. Quote uses the same
+  V6 generated-duration rates. Source up to 30s; source plus extension up to 40s.
+  Audio is not sent on this endpoint.
+- PixVerse video upscale: one local video, no quality field. Quote is 5
+  credits/s of source duration. Source up to 30s / 100 MB (planning still caps
+  at 32 MB). Already-4K sources are not submitted.
+- PixVerse video modify (prompt-only): one local video and up to three optional
+  stills. Quality is 360p/540p/720p (no 1080p). Quote is 8/10/12 credits/s of
+  source duration. Mask / swap / keyframe workflows are unimplemented.
+- PixVerse V6 image reference (Fusion): 1–8 local stills become
+  `image_references`. Quote uses standard V6 rates. Video-reference Fusion
+  (`duration: 0`, 2× rates) is unimplemented.
+  Motion-control, templates, voice and PixVerse music remain unimplemented.
 - Kling 3.0 text-to-video: default 720p, project aspect, 3–15 integer seconds,
   audio off and single shot. Explicit positive `max_credits` is required. The
   selected endpoint for international API users is
@@ -76,7 +89,15 @@ The CLI/MCP cannot approve or settle a job.
   charged credits in the service and reconcile them in the page. The requested
   seconds describes the approved timeline slot; review actual narration length
   before accepting clips. v1 hosted-MCP Eleven v4 / Turbo is not this transport.
-  Music and sound-effects endpoints are not implemented.
+- ElevenLabs music: `options.mode: music`, default `music_v2_5` (`music_v2` /
+  `music_v1` allowed). Prompt-only compose to `/v1/music`; `seconds` is 3–600
+  and becomes `music_length_ms`. Optional `force_instrumental`. Seed is rejected
+  with a prompt. Composition plans and inpainting are unimplemented. Credits
+  stay an explicit `max_credits`; none are invented from duration.
+- ElevenLabs sound effects: `options.mode: sfx`, model
+  `eleven_text_to_sound_v2` only, `/v1/sound-generation`. `seconds` is 0.5–30;
+  optional `prompt_influence` 0–1 and `loop`. Binary audio is converted locally
+  to WAV. Voice settings and `voice_id` are rejected.
 
 The local budget bounds accepted reservations and future calls. It cannot force
 a remote service to honor an estimate, refund a failure or charge no more than
@@ -91,14 +112,21 @@ identity recovery, callback ordering, unknown billing, response limits, secret
 error redaction and credential-free downloads. They do not establish actual
 provider acceptance, prices for your account or paid execution reliability.
 
-Reviewed 2026-10-18, with image/transition and speech-setting fields checked
-again on 2026-10-21:
+Reviewed 2026-10-18, with image/transition, speech settings, extend/upscale/
+modify/reference and music/SFX fields checked again on 2026-10-21:
 [PixVerse request](https://docs.platform.pixverse.ai/text-to-video-13016634e0),
 [image upload](https://docs.platform.pixverse.ai/upload-image-13016631e0),
+[media upload](https://docs.platform.pixverse.ai/upload-media-video-and-audio-43051206e0),
 [image-to-video](https://docs.platform.pixverse.ai/image-to-video-generation-13016633e0),
 [transition](https://docs.platform.pixverse.ai/first-and-last-frame-video-43051213e0),
+[extend](https://docs.platform.pixverse.ai/video-extend-43051216e0),
+[upscale](https://docs.platform.pixverse.ai/video-upscale-43051217e0),
+[modify](https://docs.platform.pixverse.ai/video-edit-modify-43051223e0),
+[reference/fusion](https://docs.platform.pixverse.ai/reference-to-video-fusion-43051214e0),
 [status](https://docs.platform.pixverse.ai/query-task-status-43051212e0),
 [pricing/ledger distinction](https://docs.platform.pixverse.ai/pixverse-api-pricing-2394995m0),
 [Kling 3.0](https://kling.ai/document-api/api/video/3-0-omni/text-to-video),
 [Kling authentication](https://kling.ai/document-api/api/get-started/authentication),
-[ElevenLabs timestamped speech](https://elevenlabs.io/docs/api-reference/text-to-speech/convert-with-timestamps).
+[ElevenLabs timestamped speech](https://elevenlabs.io/docs/api-reference/text-to-speech/convert-with-timestamps),
+[ElevenLabs music](https://elevenlabs.io/docs/api-reference/music/compose),
+[ElevenLabs sound effects](https://elevenlabs.io/docs/api-reference/text-to-sound-effects/convert).

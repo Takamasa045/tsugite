@@ -71,6 +71,60 @@ test('PixVerse image and transition upload before generate, and never send JSON 
   assert.equal(calls.filter(x=>x.url.includes('/image/upload')).length,1);
   assert.throws(()=>liveBody(imageTask,[]),/uploaded image id/);
 });
+test('PixVerse extend, upscale, modify and image reference upload local media before generate',async t=>{
+  const file=await output(t),clip=path.join(path.dirname(file),'source.mp4'),frame=path.join(path.dirname(file),'frame.png');
+  await fs.writeFile(clip,'fixture-mp4-bytes');await fs.writeFile(frame,'fixture-png-bytes');
+  const extendTask={prompt:'continue the scene',seconds:5,options:{mode:'extend',quality:'720p'}};
+  const upscaleTask={prompt:'upscale fixture',seconds:3,options:{mode:'upscale'}};
+  const modifyTask={prompt:'change the sky',seconds:3,options:{mode:'modify',quality:'540p'}};
+  const referenceTask={prompt:'@subject walks through the hall',seconds:5,options:{mode:'reference',quality:'360p',audio:true}};
+  assert.equal(generatePath(extendTask),'/openapi/v2/video/extend/generate');
+  assert.equal(generatePath(upscaleTask),'/openapi/v2/video/upscale/generate');
+  assert.equal(generatePath(modifyTask),'/openapi/v2/video/modify/generate');
+  assert.equal(generatePath(referenceTask),'/openapi/v2/video/fusion/generate');
+  assert.deepEqual(liveBody(extendTask,['55']),{model:'v6',prompt:'continue the scene',duration:5,quality:'720p',video_media_id:55});
+  assert.deepEqual(liveBody(upscaleTask,['66']),{video_media_id:66});
+  assert.deepEqual(liveBody(modifyTask,['77','88']),{prompt:'change the sky',quality:'540p',video_media_id:77,img_ids:[88]});
+  assert.deepEqual(liveBody(referenceTask,['11']),{model:'v6',prompt:'@subject walks through the hall',duration:5,quality:'360p',aspect_ratio:'16:9',image_references:[{img_id:11}],generate_audio_switch:true});
+  const calls=[];let persisted=false;
+  const transport=pixverse({...config,fetch:async(url,options)=>{
+    calls.push(url);
+    if(url.includes('/media/upload')){
+      assert.equal(options.headers['Content-Type'],undefined);
+      assert.ok(options.body instanceof FormData);
+      return json({ErrCode:0,Resp:{media_id:55,media_type:'video'}});
+    }
+    if(url.includes('/extend/generate')){
+      assert.equal(JSON.parse(options.body).video_media_id,55);
+      assert.equal(JSON.parse(options.body).duration,5);
+      return json({ErrCode:0,Resp:{video_id:101}});
+    }
+    if(url.includes('/result/')){assert.ok(persisted);return json({ErrCode:0,Resp:{id:101,status:1,url:'https://media.fixture.test/clip.mp4'}});}
+    return new Response('fixture video bytes');
+  }});
+  const result=await transport.make({task:extendTask,output:file,inputs:[clip],onSubmitted:async r=>{assert.equal(r.providerJobId,'101');persisted=true;}});
+  assert.equal(result.credits,null);
+  assert.equal(calls.filter(url=>url.includes('/media/upload')).length,1);
+});
+test('ElevenLabs music and sound effects post binary audio without inventing credits',async t=>{
+  const file=await output(t);
+  let music,sfx;
+  const musicTransport=elevenlabs({...config,fetch:async(url,options)=>{
+    assert.match(url,/\/v1\/music/);
+    music=JSON.parse(options.body);
+    return new Response(Buffer.from('fixture music'));
+  },convert:async(input,out)=>fs.copyFile(input,out)});
+  assert.equal((await musicTransport.make({task:{prompt:'upbeat cue',seconds:8,options:{mode:'music',force_instrumental:true}},output:file,onSubmitted:async()=>{}})).credits,null);
+  assert.deepEqual(music,{prompt:'upbeat cue',model_id:'music_v2_5',music_length_ms:8000,force_instrumental:true});
+  const sfxFile=file+'.sfx.wav';
+  const sfxTransport=elevenlabs({...config,fetch:async(url,options)=>{
+    assert.match(url,/\/v1\/sound-generation/);
+    sfx=JSON.parse(options.body);
+    return new Response(Buffer.from('fixture sfx'));
+  },convert:async(input,out)=>fs.copyFile(input,out)});
+  assert.equal((await sfxTransport.make({task:{prompt:'door slam',seconds:1.5,options:{mode:'sfx',prompt_influence:0.5,loop:false}},output:sfxFile,onSubmitted:async()=>{}})).credits,null);
+  assert.deepEqual(sfx,{text:'door slam',model_id:'eleven_text_to_sound_v2',duration_seconds:1.5,prompt_influence:0.5,loop:false});
+});
 test('ElevenLabs forwards documented models and voice settings without inventing credits',async t=>{
   const file=await output(t),task={prompt:'spoken fixture',seconds:3,options:{voice_id:'fixture_voice',model:'eleven_turbo_v2_5',stability:0.4,similarity_boost:0.8,style:0.1,speed:1.1,use_speaker_boost:false,language_code:'ja',apply_text_normalization:'on'}};
   let body;
@@ -83,4 +137,6 @@ test('unsupported models, task identifiers and settings fail before any request'
   assert.throws(()=>voicePayload({prompt:'spoken',seconds:3,options:{voice_id:'fixture_voice',model:'eleven_v4_turbo'}}));
   assert.throws(()=>voicePayload({prompt:'spoken',seconds:3,options:{voice_id:'fixture_voice',speed:0.5}}));
   assert.throws(()=>pixPayload({...video,options:{mode:'other'}}));
+  assert.throws(()=>voicePayload({prompt:'score',seconds:8,options:{mode:'music',model:'eleven_multilingual_v2'}}));
+  assert.throws(()=>voicePayload({prompt:'whoosh',seconds:1,options:{mode:'sfx',model:'eleven_v3'}}));
 });
