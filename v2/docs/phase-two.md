@@ -35,6 +35,8 @@ budget: {}
 Clip source bounds, audio offsets, durations and caption times are validated
 before approval. Fixed clip durations must fit the requested total; unspecified
 local clip durations share remaining time. String-only sample inputs can loop.
+PNG, JPEG and WebP stills are allowed in `use` when `seconds` is explicit; they
+hold that duration and cannot request source audio or a trim start.
 The local renderer always writes a consistent audio stream; omitted sound is
 silence. Audio tracks can be BGM, narration or SFX and are volume-limited in mix.
 
@@ -67,6 +69,14 @@ make:
     with: pixverse
     prompt: Synthetic contract fixture
     seconds: 5
+  - id: from-still
+    with: pixverse
+    prompt: Synthetic image-to-video fixture
+    seconds: 5
+    options:
+      mode: image
+    inputs:
+      - assets/first.png
   - id: voice
     with: elevenlabs
     kind: audio
@@ -74,6 +84,8 @@ make:
     seconds: 3
     options:
       voice_id: mock-voice
+      model: eleven_multilingual_v2
+      stability: 0.5
 ```
 
 No key, account or live request is used. Mock quotes and settlements are zero;

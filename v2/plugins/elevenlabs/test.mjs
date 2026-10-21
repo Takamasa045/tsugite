@@ -13,4 +13,7 @@ test('voice, payload and live quote require explicit maxima without a provider c
   assert.throws(()=>normalize({prompt:'spoken',seconds:3,kind:'audio',options:{voice_id:'../voice'}}),/Select a voice/);
   assert.throws(()=>request({...task,options:{...task.options,api_key:'do-not-store'}}),/credentials never belong/);
   assert.throws(()=>mock.quote({prompt:'spoken',seconds:3,kind:'audio',options:{voice_id:'../voice'}}),/Select a voice/);
+  assert.throws(()=>normalize({...task,options:{...task.options,model:'eleven_not_a_model'}}),/documented speech model/);
+  assert.throws(()=>normalize({...task,options:{...task.options,stability:2}}),/voice setting/);
+  assert.equal(normalize({...task,options:{...task.options,model:'eleven_turbo_v2_5',stability:0.4,speed:1.1}}).options.model,'eleven_turbo_v2_5');
 });

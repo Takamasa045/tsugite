@@ -7,6 +7,7 @@ import {write,readJSON} from '../src/files.mjs';
 import {addPlugin,bundledPlugin,newPlugin} from '../src/plugins.mjs';
 import {plan,make,currentPlan,state} from '../src/core.mjs';
 import {pluginSettings} from '../src/settings.mjs';
+import {command} from '../plugins/local/index.mjs';
 async function connection(home,update={},plugin='pixverse',defaults=plugin==='pixverse'?{quality:'540p'}:{}){await fs.mkdir(process.env.TSUGITE_HOME,{recursive:true});await write(process.env.TSUGITE_HOME,'config.json',{version:1,plugins:{[plugin]:{defaults,connection:{enabled:true,base_url:'https://api.fixture.test',credential_env:'TSUGITE_FIXTURE_KEY',download_origins:['https://media.fixture.test'],...update}}}});}
 test('live configuration is plan-bound, credentials are lazy and page approval precedes HTTP',async t=>{
   const {root,home}=await fixture(t);await addPlugin(root,await bundledPlugin('pixverse'));await connection(home);
@@ -45,6 +46,27 @@ test('live quotes fail closed for missing maxima, low ceilings and missing budge
   await assert.rejects(plan(root),/explicit positive provider credit maximum/);
   await settings(root,{make:[{id:'voice',with:'elevenlabs',kind:'audio',prompt:'fixture voice',seconds:3,options:{voice_id:'fixture_voice',max_credits:4}}],budget:{elevenlabs:20}});
   const planned=await plan(root);assert.equal(planned.plan.tasks[0].quote.credits,4);assert.equal(planned.plan.tasks[0].quote.service,'elevenlabs');
+});
+test('live image-to-video uploads the bound still before generate and keeps unknown credits reserved',async t=>{
+  const {root,home}=await fixture(t);await addPlugin(root,await bundledPlugin('pixverse'));await connection(home);
+  await command('ffmpeg',['-nostdin','-v','error','-n','-f','lavfi','-i','color=c=green:s=360x640','-frames:v','1',path.join(root,'assets/first.png')]);
+  await settings(root,{length:'5s',use:[],execution:'live',make:[{id:'shot',with:'pixverse',prompt:'fixture request',seconds:5,options:{mode:'image',quality:'360p'},inputs:['assets/first.png']}],budget:{pixverse:100}});
+  const planned=await plan(root);assert.equal(planned.plan.tasks[0].quote.credits,25);assert.equal(planned.plan.tasks[0].inputs[0].path,'assets/first.png');
+  const ui=await page(t,root);await ui.submit('approve',{stage:'plan'});
+  const oldFetch=globalThis.fetch,oldKey=process.env.TSUGITE_FIXTURE_KEY;let uploaded=false,generated=false;
+  t.after(()=>{globalThis.fetch=oldFetch;if(oldKey===undefined)delete process.env.TSUGITE_FIXTURE_KEY;else process.env.TSUGITE_FIXTURE_KEY=oldKey;});
+  process.env.TSUGITE_FIXTURE_KEY='fixture-private-secret';
+  const bytes=await fs.readFile(path.join(root,'assets/intro.mp4'));
+  globalThis.fetch=async(url,o)=>{
+    if(url.includes('/image/upload')){uploaded=true;assert.ok(o.body instanceof FormData);return Response.json({ErrCode:0,Resp:{img_id:55}});}
+    if(url.includes('/img/generate')){assert.ok(uploaded);generated=true;assert.equal(JSON.parse(o.body).img_id,55);return Response.json({ErrCode:0,Resp:{video_id:77}});}
+    if(url.includes('/result/'))return Response.json({ErrCode:0,Resp:{id:77,status:1,url:'https://media.fixture.test/a.mp4'}});
+    return new Response(bytes);
+  };
+  await assert.rejects(make(root),/Credits must/);
+  assert.equal(uploaded,true);assert.equal(generated,true);
+  assert.equal((await state(root)).jobs[planned.plan.tasks[0].key].providerJobId,'77');
+  assert.equal((await state(root)).ledger.entries[0].status,'uncertain');
 });
 test('a normalization hook cannot switch the provider or other source intent',async t=>{
   const {root,home}=await fixture(t),directory=path.join(home,'normalizer');await newPlugin(directory,'normalizer');

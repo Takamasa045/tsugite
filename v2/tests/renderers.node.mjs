@@ -67,6 +67,13 @@ test('Remotion synthetic mock plans without peers or a browser',async t=>{
   await settings(root,{length:'1s',export:'remotion',execution:'mock'});await plan(root);
   const ui=await page(t,root);assert.match(ui.html,/MOCK: synthetic/);await ui.submit('approve',{stage:'plan'});await make(root);const result=await exportVideo(root);assert.ok(Math.abs(result.seconds-1)<0.15);
 });
+test('Remotion mock holds a still image without peers',async t=>{
+  const {root}=await fixture(t);await addPlugin(root,fileURLToPath(new URL('../plugins/remotion/',import.meta.url)));
+  await command('ffmpeg',['-nostdin','-v','error','-n','-f','lavfi','-i','color=c=yellow:s=360x640','-frames:v','1',path.join(root,'assets/hold.png')]);
+  await settings(root,{length:'1s',export:'remotion',execution:'mock',use:[{path:'assets/hold.png',seconds:1}]});
+  await plan(root);const ui=await page(t,root);await ui.submit('approve',{stage:'plan'});await make(root);
+  const result=await exportVideo(root);assert.ok(Math.abs(result.seconds-1)<0.15);assert.equal(result.width,360);
+});
 test('Remotion live planning fails closed without peers or an absolute browser',async t=>{
   const {root}=await fixture(t);await addPlugin(root,fileURLToPath(new URL('../plugins/remotion/',import.meta.url)));
   const previous=process.env.TSUGITE_BROWSER;delete process.env.TSUGITE_BROWSER;

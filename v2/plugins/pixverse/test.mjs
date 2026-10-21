@@ -13,4 +13,10 @@ test('request, payload and quote reject invalid estimates without a provider cal
   assert.throws(()=>live.quote({...task,options:{quality:'360p',max_credits:24}}),/below the documented estimate/);
   assert.throws(()=>request({...task,options:{api_key:'do-not-store'}}),/credentials never belong/);
   assert.throws(()=>mock.quote({...task,options:{quality:'99p'}}),/Unsupported PixVerse/);
+  assert.throws(()=>request({...task,options:{mode:'image'}}),/exactly one local image/);
+  assert.throws(()=>request({...task,options:{mode:'transition'},inputs:['assets/a.png']}),/first and last/);
+  assert.throws(()=>request({...task,options:{mode:'image'},inputs:['assets/clip.mp4']}),/PNG, JPEG or WebP/);
+  assert.throws(()=>request({...task,inputs:['assets/a.png']}),/does not take local media/);
+  assert.equal(normalize({...task,options:{mode:'image'},inputs:['assets/first.png']}).options.mode,'image');
+  assert.equal(normalize({...task,options:{mode:'transition'},inputs:['assets/first.png','assets/last.jpg']}).options.mode,'transition');
 });

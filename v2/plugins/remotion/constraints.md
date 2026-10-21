@@ -3,8 +3,10 @@
 Optional community plugin, never required by the first offline sample. Install
 its matching peer packages separately. Set TSUGITE_BROWSER to an existing local
 Chrome/Chromium executable; this implementation never downloads a browser.
-Sequential video, trims, loops, source sound, music/voice/SFX and plain captions
-use the same versioned timeline as the local renderer. Mock uses the copied
+Sequential video, still images (PNG/JPEG/WebP with explicit seconds), trims,
+loops, source sound, music/voice/SFX and plain captions use the same versioned
+timeline as the local renderer. Still images are held for the authored duration;
+they are not an imported v1 motion or character graph. Mock uses the copied
 zero-cost FFmpeg fixture renderer and is not evidence of Remotion execution.
 `execution: mock` does not need Remotion peers or TSUGITE_BROWSER. Live/offline
 planning fails closed without matching peer packages and an absolute existing
