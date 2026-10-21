@@ -46,7 +46,9 @@ export function normalize(task,{format='16:9',defaults={}}={}){
   const mode=task.options?.mode??defaults.mode??'speech';
   const model=mode==='music'?'music_v2_5':mode==='sfx'?'eleven_text_to_sound_v2':'eleven_multilingual_v2';
   const options={model,...defaults,...task.options,mode};
-  const value={...task,options};request(value);payload(value);return value;
+  const track=mode==='sfx'?'sfx':mode==='music'?'bgm':'narration';
+  if(task.track!==undefined&&task.track!==track)throw new Error('Audio track does not match ElevenLabs mode');
+  const value={...task,options,track};request(value);payload(value);return value;
 }
 const implementation={normalize,quote(task){const t=normalize(task),maximum=t.options.max_credits;if(!Number.isFinite(maximum)||maximum<=0)throw new Error('An explicit positive provider credit maximum is required');return {service:'elevenlabs',credits:maximum};},connect(connection){return {...implementation,async make(args){return createTransport({...connection,key:connection.credential(),fetch:globalThis.fetch}).make(args);}};},async make(){throw new Error('Live execution is disabled without an explicit configured connection');}};
 export default implementation;

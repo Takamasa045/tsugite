@@ -93,7 +93,7 @@ test('live extend uploads the bound video before generate and quotes V6 generate
 test('live ElevenLabs SFX keeps a null credit receipt as done media with the reservation held',async t=>{
   const {root,home}=await fixture(t);await addPlugin(root,await bundledPlugin('elevenlabs'));await connection(home,{},'elevenlabs');
   await settings(root,{length:'2s',use:[{path:'assets/intro.mp4',seconds:2}],execution:'live',make:[{id:'hit',with:'elevenlabs',kind:'audio',prompt:'door slam',seconds:2,options:{mode:'sfx',max_credits:200}}],budget:{elevenlabs:200}});
-  const planned=await plan(root);assert.equal(planned.plan.tasks[0].quote.credits,200);assert.equal(planned.plan.timeline.audio.find(a=>a.id==='hit').kind,'sfx');
+  const planned=await plan(root);assert.equal(planned.plan.tasks[0].quote.credits,200);assert.equal(planned.plan.tasks[0].track,'sfx');assert.equal(planned.plan.timeline.audio.find(a=>a.id==='hit').kind,'sfx');
   const ui=await page(t,root);await ui.submit('approve',{stage:'plan'});
   const oldFetch=globalThis.fetch,oldKey=process.env.TSUGITE_FIXTURE_KEY;
   t.after(()=>{globalThis.fetch=oldFetch;if(oldKey===undefined)delete process.env.TSUGITE_FIXTURE_KEY;else process.env.TSUGITE_FIXTURE_KEY=oldKey;});
@@ -116,4 +116,17 @@ test('a normalization hook cannot switch the provider or other source intent',as
   const {root,home}=await fixture(t),directory=path.join(home,'normalizer');await newPlugin(directory,'normalizer');
   await fs.writeFile(path.join(directory,'index.mjs'),"export default {quote:()=>({service:'local',credits:0}),make:async()=>{},normalize:t=>({...t,with:'local'})};");await addPlugin(root,directory);
   await settings(root,{make:[{id:'shot',with:'normalizer',prompt:'fixture',seconds:3}]});await assert.rejects(plan(root),/only fill source options/);assert.equal((await state(root)).ledger.entries.length,0);
+});
+test('generated audio kinds come from a generic track, not a vendor mode name',async t=>{
+  const {root,home}=await fixture(t),named=path.join(home,'named-mode'),labeled=path.join(home,'labeled-track');
+  await newPlugin(named,'named-mode');await newPlugin(labeled,'labeled-track');
+  await fs.writeFile(path.join(named,'index.mjs'),"export default {quote:()=>({service:'local',credits:0}),make:async()=>{}};");
+  await fs.writeFile(path.join(labeled,'index.mjs'),"export default {quote:()=>({service:'local',credits:0}),make:async()=>{},normalize:t=>({...t,track:'bgm'})};");
+  await addPlugin(root,named);await addPlugin(root,labeled);
+  await settings(root,{length:'3s',use:[{path:'assets/intro.mp4',seconds:3}],make:[{id:'voice',with:'named-mode',kind:'audio',prompt:'cue',seconds:3,options:{mode:'music'}}]});
+  const unnamed=await plan(root);assert.equal(unnamed.plan.timeline.audio.find(a=>a.id==='voice').kind,'narration');
+  await settings(root,{length:'3s',use:[{path:'assets/intro.mp4',seconds:3}],make:[{id:'score',with:'labeled-track',kind:'audio',prompt:'cue',seconds:3}]});
+  const labeledPlan=await plan(root);assert.equal(labeledPlan.plan.tasks[0].track,'bgm');assert.equal(labeledPlan.plan.timeline.audio.find(a=>a.id==='score').kind,'bgm');
+  await settings(root,{length:'3s',use:[{path:'assets/intro.mp4',seconds:3}],make:[{id:'score',with:'labeled-track',kind:'audio',prompt:'cue',seconds:3,track:'sfx'}]});
+  await assert.rejects(plan(root),/only fill source options/);
 });

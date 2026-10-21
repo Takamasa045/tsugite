@@ -82,13 +82,13 @@
 | --- | --- | --- |
 | Remotion（標準組み立て） | 静止画（PNG/JPEG/WebP、明示秒数）を local と同じタイムラインで保持。live は拡張子を保って `Img` に渡す。案件専用モーション・キャラは対象外のまま | 案件専用プリセット/モーション/キャラは **v1 に残す**。cover fit やクリップ間トランジションは未実装。実機 Remotion 書き出しは既存どおり任意ランタイム |
 | PixVerse | `make.inputs` で計画に束縛したローカル静止画。V6 の image-to-video と first/last-frame transition を公式HTTPで実装。音声オンは公式 V6 単価 7/9/12/23 credits/s。20 MB 超は計画時拒否。合成アップロード/生成テストあり。extend / upscale / prompt-only modify / 画像 Fusion を公式HTTPと単価で追加 | video-reference Fusion、mask/swap、motion-control / template / voice / PixVerse music は未実装。実課金受け入れは段階2 |
-| ElevenLabs | 公式モデル許可（`eleven_multilingual_v2` / `eleven_turbo_v2_5` / `eleven_flash_v2_5` / `eleven_v3`）と `voice_settings` / `language_code` / `apply_text_normalization`。`mode: music`（`music_v2_5`、3–600s）と `mode: sfx`（`eleven_text_to_sound_v2`、0.5–30s）を計画時検証。`credits: null` は成果物成功＋予約維持。変換用一時ファイルは削除。music は BGM、SFX は sfx。公開単価は credits と USD が食い違うため `max_credits` は予約上限のみ | v1 のホスト型MCP v4/Turbo はこのHTTP経路ではない。composition plan / inpainting は未実装。実課金・実voice受け入れは段階2。音声だけ（映像クリップなし）のタイムラインは未対応 |
-| コア | `make.inputs` を assets 内ファイルに限定し、ハッシュを計画へ束縛。タイムラインクリップにはしない。`credits: null` を確定額不明として予約維持。v2 の隔離は `TSUGITE_HOME`（`TSUGITE_PROJECTS_HOME` は未使用） | 生成リクエストの v1 自動取り込みはしない（既存どおり警告のみ） |
+| ElevenLabs | 公式モデル許可（`eleven_multilingual_v2` / `eleven_turbo_v2_5` / `eleven_flash_v2_5` / `eleven_v3`）と `voice_settings` / `language_code` / `apply_text_normalization`。`mode: music`（`music_v2_5`、3–600s）と `mode: sfx`（`eleven_text_to_sound_v2`、0.5–30s）を計画時検証。`credits: null` は成果物成功＋予約維持。変換用一時ファイルは削除。normalize が汎用 `track`（bgm / sfx / narration）を埋める。公開単価は credits と USD が食い違うため `max_credits` は予約上限のみ | v1 のホスト型MCP v4/Turbo はこのHTTP経路ではない。composition plan / inpainting は未実装。実課金・実voice受け入れは段階2。音声だけ（映像クリップなし）のタイムラインは未対応 |
+| コア | `make.inputs` を assets 内ファイルに限定し、ハッシュを計画へ束縛。タイムラインクリップにはしない。明示 `credits: null` だけを確定額不明として予約維持（欠落は契約違反）。生成音声の種別は汎用 `track`。v2 の隔離は `TSUGITE_HOME`（`TSUGITE_PROJECTS_HOME` は未使用） | 生成リクエストの v1 自動取り込みはしない（既存どおり警告のみ） |
 
 段階2（P08 / P10 / B04 の実課金受け入れ）と、HyperFrames / MiniMax / Editframe / Hypit / Kling / Tesseract の実験枠は、この進捗の対象外です。
 
 ## まだ分からないこと
 
 - 手元の案件数は所有者提供です。リポジトリでは再集計していません。
-- v2のテストは 2026-10-21 に再実行しました。`npm --prefix v2 run check` は **129 passed / 0 failed / skip 5**（任意ランタイムと明示Whisper）。以前の記録は [verification.md](verification.md) と [alpha.5リリース](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.5) に日付付きで残しています。
+- v2のテストは 2026-10-21 に再実行しました。`npm --prefix v2 run check` は **131 passed / 0 failed / skip 5**（任意ランタイムと明示Whisper）。以前の記録は [verification.md](verification.md) と [alpha.5リリース](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.5) に日付付きで残しています。
 - HyperFrames は v1・v2アダプターとも 0.8.173 に固定しました（`package.json` と pin ファイル）。以前の 0.8.75 / 0.8.24 の記述は旧版です。

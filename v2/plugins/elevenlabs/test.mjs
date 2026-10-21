@@ -19,8 +19,12 @@ test('voice, payload and live quote require explicit maxima without a provider c
   assert.throws(()=>normalize({...task,options:{...task.options,speed:1.3}}),/voice setting/);
   assert.equal(normalize({...task,options:{...task.options,speed:0.7}}).options.speed,0.7);
   assert.equal(normalize({...task,options:{...task.options,model:'eleven_turbo_v2_5',stability:0.4,speed:1.1}}).options.model,'eleven_turbo_v2_5');
+  assert.equal(normalize(task).track,'narration');
   assert.equal(normalize({prompt:'score',seconds:8,kind:'audio',options:{mode:'music'}}).options.model,'music_v2_5');
+  assert.equal(normalize({prompt:'score',seconds:8,kind:'audio',options:{mode:'music'}}).track,'bgm');
   assert.equal(normalize({prompt:'whoosh',seconds:1.5,kind:'audio',options:{mode:'sfx',prompt_influence:0.4,loop:true}}).options.model,'eleven_text_to_sound_v2');
+  assert.equal(normalize({prompt:'whoosh',seconds:1.5,kind:'audio',options:{mode:'sfx',prompt_influence:0.4,loop:true}}).track,'sfx');
+  assert.throws(()=>normalize({prompt:'score',seconds:8,kind:'audio',track:'narration',options:{mode:'music'}}),/does not match/);
   assert.throws(()=>request({prompt:'score',seconds:2,kind:'audio',options:{mode:'music'}}),/3–600/);
   assert.throws(()=>request({prompt:'score',seconds:8,kind:'audio',options:{mode:'music',voice_id:'fixture-voice'}}),/do not take a voice_id/);
   assert.throws(()=>request({prompt:'score',seconds:8,kind:'audio',options:{mode:'music',seed:1}}),/cannot be combined with a prompt/);

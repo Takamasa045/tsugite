@@ -83,11 +83,13 @@ test('PixVerse video modes and ElevenLabs music/SFX bind local contracts without
   const music=await plan(root);
   assert.equal(music.plan.tasks[0].options.mode,'music');
   assert.equal(music.plan.tasks[0].options.model,'music_v2_5');
+  assert.equal(music.plan.tasks[0].track,'bgm');
   assert.equal(music.plan.timeline.audio.find(a=>a.id==='score').kind,'bgm');
   await settings(root,{length:'2s',use:[{path:'assets/intro.mp4',seconds:2}],make:[{id:'hit',with:'elevenlabs',kind:'audio',prompt:'door slam',seconds:1.5,options:{mode:'sfx',prompt_influence:0.4}}]});
   const sfx=await plan(root);
   assert.equal(sfx.plan.tasks[0].options.mode,'sfx');
   assert.equal(sfx.plan.tasks[0].options.model,'eleven_text_to_sound_v2');
+  assert.equal(sfx.plan.tasks[0].track,'sfx');
   assert.equal(sfx.plan.timeline.audio.find(a=>a.id==='hit').kind,'sfx');
   await settings(root,{length:'5s',use:[],make:[{id:'shot',with:'pixverse',prompt:'continue',seconds:5,options:{mode:'extend'}}]});
   await assert.rejects(plan(root),/exactly one local video/);

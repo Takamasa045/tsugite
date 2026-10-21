@@ -115,10 +115,13 @@ The CLI/MCP cannot approve or settle a job.
   duration is set, and ElevenAPI lists USD $0.12/minute. Do not invent
   `max_credits` from those rows; reserve at or above the account you will
   check, then settle the receipt on the page.
-  The HTTP transport returns `credits: null`. A received WAV is a successful
-  artifact; the reservation stays uncertain until the confirmation page
-  records the actual charge. Temporary `*.wav.mp3` conversion files are
-  removed after success or conversion failure.
+  The HTTP transport returns `credits: null` (explicit unknown amount). A
+  received WAV is a successful artifact; the reservation stays uncertain until
+  the confirmation page records the actual charge. A missing `credits` field is
+  a contract failure, not an unknown receipt. Temporary `*.wav.mp3` conversion
+  files are removed after success or conversion failure. ElevenLabs fills the
+  generic make `track` (`narration` / `bgm` / `sfx`); core does not interpret
+  vendor `mode` names.
 
 The local budget bounds accepted reservations and future calls. It cannot force
 a remote service to honor an estimate, refund a failure or charge no more than

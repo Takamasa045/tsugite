@@ -23,7 +23,8 @@ connection, a service budget, and a page-approved plan. Keys are read lazily
 from the chosen environment reference, never written to the project.
 Credentials never belong in source options. The synchronous endpoint has no
 durable task id; a `credits: null` receipt keeps the reservation and still
-marks received audio as done. Temporary conversion files are removed.
+marks received audio as done. Normalize fills generic `track` (`narration` /
+`bgm` / `sfx`) from `mode`. Temporary conversion files are removed.
 
 Unknown failures/credits hold the reservation; do not infer refunds or automatically repeat submission. Inspect the source package and the connection guide before enabling live mode. A local reservation is not a vendor-enforced remote billing cap.
 
