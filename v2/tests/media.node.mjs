@@ -77,6 +77,8 @@ test('PixVerse video modes and ElevenLabs music/SFX bind local contracts without
   assert.equal(extended.plan.tasks[0].options.mode,'extend');
   assert.equal(extended.plan.tasks[0].inputs[0].path,'assets/intro.mp4');
   assert.ok(extended.plan.tasks[0].inputs[0].seconds>0);
+  assert.ok(extended.plan.tasks[0].inputs[0].width>0);
+  assert.ok(extended.plan.tasks[0].inputs[0].height>0);
   await settings(root,{length:'8s',use:[{path:'assets/intro.mp4',loop:true}],make:[{id:'score',with:'elevenlabs',kind:'audio',prompt:'upbeat cue',seconds:8,options:{mode:'music',force_instrumental:true}}]});
   const music=await plan(root);
   assert.equal(music.plan.tasks[0].options.mode,'music');

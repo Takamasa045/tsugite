@@ -24,6 +24,7 @@ test('voice, payload and live quote require explicit maxima without a provider c
   assert.throws(()=>request({prompt:'score',seconds:2,kind:'audio',options:{mode:'music'}}),/3–600/);
   assert.throws(()=>request({prompt:'score',seconds:8,kind:'audio',options:{mode:'music',voice_id:'fixture-voice'}}),/do not take a voice_id/);
   assert.throws(()=>request({prompt:'score',seconds:8,kind:'audio',options:{mode:'music',seed:1}}),/cannot be combined with a prompt/);
+  assert.throws(()=>request({prompt:'x'.repeat(4101),seconds:8,kind:'audio',options:{mode:'music'}}),/4100/);
   assert.throws(()=>request({prompt:'whoosh',seconds:0.4,kind:'audio',options:{mode:'sfx'}}),/0\.5–30/);
   assert.throws(()=>request({prompt:'whoosh',seconds:1,kind:'audio',options:{mode:'sfx',prompt_influence:2}}),/0–1/);
   assert.throws(()=>request({prompt:'whoosh',seconds:1,kind:'audio',options:{mode:'sfx',stability:0.4}}),/speech voice settings/);

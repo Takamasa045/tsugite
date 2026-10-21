@@ -13,7 +13,10 @@ media and validates the same request/payload contract as planning. Live quotes
 use dated V6 generated-duration rates for text/image/transition/extend/image
 reference (audio-off 5/7/9/18, audio-on 7/9/12/23), 5 credits/s of source
 duration for upscale, and 8/10/12 credits/s of source duration for modify
-360/540/720p. `max_credits` below that estimate is rejected. Images over 20 MB
+360/540/720p. `max_credits` below that estimate is rejected. Upscale and modify
+reject a requested duration longer than the probed source. Already-4K sources
+are not submitted. Extend results that include the source are trimmed to the
+requested tail. Images over 20 MB
 and videos over 32 MB fail at planning. Video-reference Fusion, masks, motion
 control, templates, voice and PixVerse music are unimplemented. Verify actual
 charges before paid use. Live mode requires an explicitly enabled private connection, a service

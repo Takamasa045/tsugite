@@ -35,5 +35,8 @@ test('request, payload and quote reject invalid estimates without a provider cal
   assert.throws(()=>request({...task,options:{mode:'modify',quality:'1080p'},inputs:['assets/intro.mp4']}),/1080p/);
   assert.throws(()=>live.quote({...task,options:{mode:'upscale'},inputs:['assets/intro.mp4']}),/finite local video duration/);
   assert.throws(()=>request({...task,options:{mode:'extend'},inputs:[{path:'assets/intro.mp4',seconds:36}]}),/40 second/);
+  assert.throws(()=>request({...task,seconds:30,options:{mode:'upscale'},inputs:[{path:'assets/intro.mp4',seconds:3}]}),/exceeds the source video/);
+  assert.throws(()=>request({...task,seconds:10,options:{mode:'modify',quality:'540p'},inputs:[{path:'assets/intro.mp4',seconds:3}]}),/exceeds the source video/);
+  assert.throws(()=>request({...task,seconds:3,options:{mode:'upscale'},inputs:[{path:'assets/intro.mp4',seconds:3,width:3840,height:2160}]}),/Already-4K/);
   assert.throws(()=>request({...task,options:{mode:'reference'}}),/1–8 local image/);
 });

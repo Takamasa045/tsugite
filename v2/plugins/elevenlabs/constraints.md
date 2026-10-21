@@ -7,7 +7,9 @@ and `eleven_v3`. Optional official `voice_settings` (`stability`,
 `similarity_boost`, `style`, `speed` 0.7–1.2, `use_speaker_boost`), `language_code` and
 `apply_text_normalization` are forwarded when set. `options.mode: music` uses
 `/v1/music` with `music_v2_5` (or `music_v2` / `music_v1`), 3–600s
-`music_length_ms`, and optional `force_instrumental`. `options.mode: sfx` uses
+`music_length_ms`, optional `force_instrumental`, and a 4100-character prompt
+cap. Music and SFX wait up to `60s + 2s` per requested second (20-minute cap).
+`options.mode: sfx` uses
 `/v1/sound-generation` with `eleven_text_to_sound_v2`, 0.5–30s,
 `prompt_influence` 0–1 and optional `loop`. Music/SFX reject `voice_id` and
 speech settings; composition plans stay unimplemented. Hosted-MCP Eleven v4 / Turbo

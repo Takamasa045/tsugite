@@ -60,7 +60,14 @@ export function request(task) {
   if((mode==='upscale'||mode==='modify')&&(!Number.isInteger(task.seconds)||task.seconds<1||task.seconds>30))throw new Error('Unsupported duration');
   const source=sourceSeconds(files[0]);
   if(mode==='extend'&&source!==null&&(source>30||source+task.seconds>40))throw new Error('Extended video would exceed the 40 second source limit');
-  if((mode==='upscale'||mode==='modify')&&source!==null&&(source<=0||source>30))throw new Error('Source video exceeds the 30 second limit');
+  if((mode==='upscale'||mode==='modify')&&source!==null){
+    if(source<=0||source>30)throw new Error('Source video exceeds the 30 second limit');
+    if(task.seconds>source+0.02)throw new Error('Requested duration exceeds the source video');
+  }
+  if(mode==='upscale'){
+    const file=files[0],width=typeof file==='object'?file.width:undefined,height=typeof file==='object'?file.height:undefined;
+    if((Number.isInteger(width)&&width>=3840)||(Number.isInteger(height)&&height>=2160))throw new Error('Already-4K sources are not submitted');
+  }
   if(definition.kind==='audio'&&typeof options.voice_id!=='string')throw new Error('Choose a voice_id explicitly');
   return {service:definition.id,kind:definition.kind,prompt:task.prompt,seconds:task.seconds,options};
 }

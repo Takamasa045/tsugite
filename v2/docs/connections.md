@@ -62,13 +62,17 @@ The CLI/MCP cannot approve or settle a job.
   through `/openapi/v2/media/upload`, then `/openapi/v2/video/extend/generate`
   with `video_media_id`. `seconds` is the 1–15s extension. Quote uses the same
   V6 generated-duration rates. Source up to 30s; source plus extension up to 40s.
-  Audio is not sent on this endpoint.
+  Audio is not sent on this endpoint. If the downloaded file is longer than the
+  extension (source plus tail), only the last `seconds` are kept so the
+  timeline slot matches the new part.
 - PixVerse video upscale: one local video, no quality field. Quote is 5
   credits/s of source duration. Source up to 30s / 100 MB (planning still caps
-  at 32 MB). Already-4K sources are not submitted.
+  at 32 MB). `seconds` cannot exceed the probed source duration. Already-4K
+  sources (`width >= 3840` or `height >= 2160`) are rejected at planning.
 - PixVerse video modify (prompt-only): one local video and up to three optional
   stills. Quality is 360p/540p/720p (no 1080p). Quote is 8/10/12 credits/s of
-  source duration. Mask / swap / keyframe workflows are unimplemented.
+  source duration. `seconds` cannot exceed the probed source duration.
+  Mask / swap / keyframe workflows are unimplemented.
 - PixVerse V6 image reference (Fusion): 1–8 local stills become
   `image_references`. Quote uses standard V6 rates. Video-reference Fusion
   (`duration: 0`, 2× rates) is unimplemented.
@@ -92,12 +96,15 @@ The CLI/MCP cannot approve or settle a job.
 - ElevenLabs music: `options.mode: music`, default `music_v2_5` (`music_v2` /
   `music_v1` allowed). Prompt-only compose to `/v1/music`; `seconds` is 3–600
   and becomes `music_length_ms`. Optional `force_instrumental`. Seed is rejected
-  with a prompt. Composition plans and inpainting are unimplemented. Credits
-  stay an explicit `max_credits`; none are invented from duration.
+  with a prompt. Prompt text is capped at 4100 characters. The HTTP wait is
+  `60s + 2s` per requested second, capped at 20 minutes (speech stays 30s).
+  Composition plans and inpainting are unimplemented. Credits stay an explicit
+  `max_credits`; none are invented from duration.
 - ElevenLabs sound effects: `options.mode: sfx`, model
   `eleven_text_to_sound_v2` only, `/v1/sound-generation`. `seconds` is 0.5–30;
   optional `prompt_influence` 0–1 and `loop`. Binary audio is converted locally
-  to WAV. Voice settings and `voice_id` are rejected.
+  to WAV. The same duration-based HTTP wait applies. Voice settings and
+  `voice_id` are rejected.
 
 The local budget bounds accepted reservations and future calls. It cannot force
 a remote service to honor an estimate, refund a failure or charge no more than

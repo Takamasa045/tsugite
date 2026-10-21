@@ -22,6 +22,7 @@ export function request(task) {
   }
   if(mode==='music'){
     if(!Number.isInteger(task.seconds)||task.seconds<3||task.seconds>600)throw new Error('Music length must be 3–600 seconds');
+    if(task.prompt.length>4100)throw new Error('Music prompt exceeds 4100 characters');
     if(options.force_instrumental!==undefined&&typeof options.force_instrumental!=='boolean')throw new Error('Invalid instrumental switch');
     if(options.seed!==undefined)throw new Error('Music seed cannot be combined with a prompt');
     if(options.prompt_influence!==undefined||options.loop!==undefined)throw new Error('Music does not take sound-effect options');

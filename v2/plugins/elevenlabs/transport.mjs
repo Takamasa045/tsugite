@@ -12,6 +12,7 @@ export function payload(task){
   if(mode==='music'){
     const model=o.model??'music_v2_5';
     if(!MUSIC.has(model)||!Number.isInteger(task.seconds)||task.seconds<3||task.seconds>600)throw new Error('Select a documented music model and 3–600 second length');
+    if(task.prompt.length>4100)throw new Error('Music prompt exceeds 4100 characters');
     return {prompt:task.prompt,model_id:model,music_length_ms:task.seconds*1000,...(o.force_instrumental===undefined?{}:{force_instrumental:o.force_instrumental===true})};
   }
   if(mode==='sfx'){
@@ -42,6 +43,11 @@ export function payload(task){
     ...(o.apply_text_normalization?{apply_text_normalization:o.apply_text_normalization}:{})
   };
 }
+export function requestTimeout(task){
+  const mode=task.options?.mode??'speech';
+  if(mode==='speech')return 30000;
+  return Math.min(1_200_000,60_000+Math.ceil(task.seconds)*2_000);
+}
 async function convertMp3(settings,temporary,output){
   if(settings.convert)await settings.convert(temporary,output);
   else try{await promisify(execFile)(process.env.TSUGITE_FFMPEG||'ffmpeg',['-nostdin','-v','error','-n','-protocol_whitelist','file,pipe','-i',temporary,'-ac','1','-ar','48000','-c:a','pcm_s16le',output],{timeout:120000,windowsHide:true,maxBuffer:1000000});}catch{throw new Error('Audio received but local conversion failed; do not resubmit');}
@@ -59,7 +65,7 @@ export function createTransport(settings){
       return {credits:null,alignment:r.alignment??null};
     }
     const pathName=mode==='music'?'/v1/music?output_format=mp3_44100_128':'/v1/sound-generation?output_format=mp3_44100_128';
-    const bytes=await http.binary(pathName,body);
+    const bytes=await http.binary(pathName,body,undefined,requestTimeout(task));
     const temporary=path.join(path.dirname(output),path.basename(output)+'.mp3');await fs.writeFile(temporary,bytes,{flag:'wx'});
     await convertMp3(settings,temporary,output);
     return {credits:null};

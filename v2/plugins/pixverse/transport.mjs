@@ -1,7 +1,10 @@
 import {randomUUID} from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
 import {channel,jobId} from './http.mjs';
+const run=promisify(execFile);
 const IMAGE_TYPE={'.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp'};
 const VIDEO_TYPE={'.mp4':'video/mp4','.mov':'video/quicktime','.webm':'video/webm'};
 const GENERATE=['text','image','transition','extend','reference'];
@@ -67,6 +70,27 @@ function videoFile(file){
   if(!type)throw new Error('Unsupported video type');
   return type;
 }
+export async function keepExtension(file,seconds,{probe,trim}={}){
+  if(!Number.isFinite(seconds)||seconds<=0)return;
+  let duration;
+  try{
+    if(probe)duration=await probe(file);
+    else{
+      const {stdout}=await run(process.env.TSUGITE_FFPROBE||'ffprobe',['-v','error','-protocol_whitelist','file,pipe','-show_entries','format=duration','-of','csv=p=0',file],{timeout:30000,windowsHide:true,maxBuffer:1000000});
+      duration=Number(String(stdout).trim());
+    }
+  }catch{return;}
+  if(!Number.isFinite(duration)||duration<=seconds+0.5)return;
+  if(trim){await trim(file,seconds,duration);return;}
+  const temporary=file+'.tail.mp4';
+  try{
+    await run(process.env.TSUGITE_FFMPEG||'ffmpeg',['-nostdin','-v','error','-y','-protocol_whitelist','file,pipe','-ss',String(Math.max(0,duration-seconds)),'-i',file,'-t',String(seconds),'-c:v','libx264','-pix_fmt','yuv420p','-an','-movflags','+faststart',temporary],{timeout:120000,windowsHide:true,maxBuffer:1000000});
+    await fs.rm(file);await fs.rename(temporary,file);
+  }catch{
+    await fs.rm(temporary,{force:true}).catch(()=>{});
+    throw new Error('Video received but extension trim failed; do not resubmit');
+  }
+}
 function needed(mode){
   if(mode==='image'||mode==='extend'||mode==='upscale')return {count:1,kind:'image'};
   if(mode==='transition')return {count:2,kind:'image'};
@@ -101,6 +125,8 @@ export function createTransport(settings){
     if(typeof onSubmitted!=='function')throw new Error('Durable submission callback required');
     const r=await api(generatePath(task),body),id=jobId(r.video_id);
     await onSubmitted({providerJobId:id});
-    return resume({providerJobId:id,output});
+    const result=await resume({providerJobId:id,output});
+    if(mode==='extend')await keepExtension(output,task.seconds);
+    return result;
   }};
 }

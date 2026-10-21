@@ -90,5 +90,5 @@
 ## まだ分からないこと
 
 - 手元の案件数は所有者提供です。リポジトリでは再集計していません。
-- v2のテストは 2026-10-21 に再実行しました。`npm --prefix v2 run check` は **127 passed / 0 failed / skip 5**（任意ランタイムと明示Whisper）。以前の記録は [verification.md](verification.md) と [alpha.5リリース](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.5) に日付付きで残しています。
+- v2のテストは 2026-10-21 に再実行しました。`npm --prefix v2 run check` は **128 passed / 0 failed / skip 5**（任意ランタイムと明示Whisper）。以前の記録は [verification.md](verification.md) と [alpha.5リリース](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.5) に日付付きで残しています。
 - HyperFrames は v1・v2アダプターとも 0.8.173 に固定しました（`package.json` と pin ファイル）。以前の 0.8.75 / 0.8.24 の記述は旧版です。

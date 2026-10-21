@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {createTransport as pixverse,payload as pixPayload,liveBody,generatePath} from '../plugins/pixverse/transport.mjs';
+import {createTransport as pixverse,payload as pixPayload,liveBody,generatePath,keepExtension} from '../plugins/pixverse/transport.mjs';
 import {createTransport as kling,billing,payload as klingPayload} from '../plugins/kling/transport.mjs';
-import {createTransport as elevenlabs,payload as voicePayload} from '../plugins/elevenlabs/transport.mjs';
+import {createTransport as elevenlabs,payload as voicePayload,requestTimeout} from '../plugins/elevenlabs/transport.mjs';
+import {probe,sample} from '../plugins/local/index.mjs';
 import {channel} from '../plugins/pixverse/http.mjs';
 const json=value=>new Response(JSON.stringify(value),{headers:{'content-type':'application/json'}}),key='fixture-secret-never-real',video={prompt:'synthetic fixture',seconds:5,options:{}},config={baseURL:'https://api.fixture.test',key,origins:['https://media.fixture.test'],wait:async()=>{}};
 async function output(t){const dir=await fs.mkdtemp(path.join(os.tmpdir(),'tsugite-v2-transport-'));t.after(()=>fs.rm(dir,{recursive:true,force:true}));return path.join(dir,'clip.mp4');}
@@ -106,6 +107,17 @@ test('PixVerse extend, upscale, modify and image reference upload local media be
   assert.equal(result.credits,null);
   assert.equal(calls.filter(url=>url.includes('/media/upload')).length,1);
 });
+test('PixVerse extend keeps only the tail when the result includes the source',async t=>{
+  const file=await output(t);await sample(file,3);
+  let seen=0;
+  await keepExtension(file,1,{probe:async()=>{seen++;return 3;},trim:async(target,seconds,duration)=>{assert.equal(target,file);assert.equal(seconds,1);assert.equal(duration,3);await fs.rm(target);await sample(target,1);}});
+  assert.equal(seen,1);
+  assert.ok((await probe(file)).seconds<=1.2);
+  const leftover=await output(t);
+  await fs.writeFile(leftover,'not a video');
+  await keepExtension(leftover,1);
+  assert.equal(await fs.readFile(leftover,'utf8'),'not a video');
+});
 test('ElevenLabs music and sound effects post binary audio without inventing credits',async t=>{
   const file=await output(t);
   let music,sfx;
@@ -139,4 +151,9 @@ test('unsupported models, task identifiers and settings fail before any request'
   assert.throws(()=>pixPayload({...video,options:{mode:'other'}}));
   assert.throws(()=>voicePayload({prompt:'score',seconds:8,options:{mode:'music',model:'eleven_multilingual_v2'}}));
   assert.throws(()=>voicePayload({prompt:'whoosh',seconds:1,options:{mode:'sfx',model:'eleven_v3'}}));
+  assert.throws(()=>voicePayload({prompt:'x'.repeat(4101),seconds:8,options:{mode:'music'}}),/4100/);
+  assert.equal(requestTimeout({prompt:'spoken',seconds:3,options:{mode:'speech'}}),30000);
+  assert.equal(requestTimeout({prompt:'score',seconds:8,options:{mode:'music'}}),76000);
+  assert.equal(requestTimeout({prompt:'whoosh',seconds:30,options:{mode:'sfx'}}),120000);
+  assert.equal(requestTimeout({prompt:'score',seconds:600,options:{mode:'music'}}),1_200_000);
 });
