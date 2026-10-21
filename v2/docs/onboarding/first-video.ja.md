@@ -142,10 +142,13 @@ v2のサンプルだけを試すために、v1の`npm run setup`や追加エン�
 ### 2. 新しいサンプルの計画を開く
 
 ```sh
-npm run --silent v2 -- init ./projects/my-first-v2-video
-npm run --silent v2 -- check --project ./projects/my-first-v2-video
-npm run --silent v2 -- plan --project ./projects/my-first-v2-video
+npm run --silent v2 -- init ./my-first-v2-video
+npm run --silent v2 -- check --project ./my-first-v2-video
+npm run --silent v2 -- plan --project ./my-first-v2-video
 ```
+
+v2 の設定と好みは `~/.tsugite`（上書きは `TSUGITE_HOME`）です。v1 の
+`TSUGITE_PROJECTS_HOME` は読みません。リポジトリの `projects/` に書かないでください。
 
 `check`が`"ok": true`になったことを確認してください。`my-first-v2-video`がすでにある場合は、3行とも同じ新しい名前へ変えます。既存の制作案件を指定しないでください。
 
@@ -156,11 +159,11 @@ npm run --silent v2 -- plan --project ./projects/my-first-v2-video
 確認ページで**Approve plan**を押した後、**2つ目のターミナルをリポジトリ直下で開き**、次を実行します。
 
 ```sh
-npm run --silent v2 -- make --project ./projects/my-first-v2-video
-npm run --silent v2 -- export --project ./projects/my-first-v2-video
+npm run --silent v2 -- make --project ./my-first-v2-video
+npm run --silent v2 -- export --project ./my-first-v2-video
 ```
 
-動画は**`projects/my-first-v2-video/out/final.mp4`**です。
+動画は**`my-first-v2-video/out/final.mp4`**です。
 
 ## 確認ページでの操作
 

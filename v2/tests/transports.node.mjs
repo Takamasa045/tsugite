@@ -136,6 +136,10 @@ test('ElevenLabs music and sound effects post binary audio without inventing cre
   },convert:async(input,out)=>fs.copyFile(input,out)});
   assert.equal((await sfxTransport.make({task:{prompt:'door slam',seconds:1.5,options:{mode:'sfx',prompt_influence:0.5,loop:false}},output:sfxFile,onSubmitted:async()=>{}})).credits,null);
   assert.deepEqual(sfx,{text:'door slam',model_id:'eleven_text_to_sound_v2',duration_seconds:1.5,prompt_influence:0.5,loop:false});
+  const failed=sfxFile+'.fail.wav';
+  const failing=elevenlabs({...config,fetch:async()=>new Response(Buffer.from('fixture sfx')),convert:async()=>{throw new Error('Audio received but local conversion failed; do not resubmit');}});
+  await assert.rejects(failing.make({task:{prompt:'door slam',seconds:1.5,options:{mode:'sfx'}},output:failed,onSubmitted:async()=>{}}),/conversion failed/);
+  await assert.rejects(fs.access(failed+'.mp3'),/ENOENT/);
 });
 test('ElevenLabs forwards documented models and voice settings without inventing credits',async t=>{
   const file=await output(t),task={prompt:'spoken fixture',seconds:3,options:{voice_id:'fixture_voice',model:'eleven_turbo_v2_5',stability:0.4,similarity_boost:0.8,style:0.1,speed:1.1,use_speaker_boost:false,language_code:'ja',apply_text_normalization:'on'}};

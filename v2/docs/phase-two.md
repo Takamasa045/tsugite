@@ -203,7 +203,10 @@ advertise source inspection only until their runtime adapter is reviewed.
 
 ## Manual reconciliation
 
-An uncertain job holds its reservation. After checking its actual outcome,
+An uncertain reservation holds its credits even when the local media already
+exists. Provider transports may return explicit `credits: null` after a successful
+download; the clip is done and the page still asks for a receipt. Omitting
+`credits` is a contract failure. After checking its actual outcome,
 prepare a local normalized receipt and review it in the page:
 
 ```json

@@ -103,7 +103,8 @@ Offline mode rejects declared network plugins. Live mode requires an explicitly 
 
 Everything stays in the video folder: `assets/`, `taste/`, `out/`, and generated
 plans, approvals, jobs and budget history in `.tsugite/`. Common preferences can
-live in `~/.tsugite/taste/` (`TSUGITE_HOME` overrides it for isolated tests).
+live in `~/.tsugite/taste/` (`TSUGITE_HOME` overrides that private home).
+v2 does not read `TSUGITE_PROJECTS_HOME`.
 `note --global` stores a global observation. Rule text in the global rules file
 is included in every plan. Nothing is uploaded by the core.
 

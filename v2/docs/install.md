@@ -50,9 +50,13 @@ same OS file permissions is not isolated by this page-only operation guard.
 Use the normal checkout without installing a global package:
 
 ```sh
-npm run --silent v2 -- init ./projects/my-new-v2-video
-npm run --silent v2 -- plan --project ./projects/my-new-v2-video
+npm run --silent v2 -- init ./my-new-v2-video
+npm run --silent v2 -- plan --project ./my-new-v2-video
 ```
+
+v2 reads private config and taste from `~/.tsugite` (`TSUGITE_HOME` overrides
+that home). It does not read `TSUGITE_PROJECTS_HOME`. Keep sample folders
+outside the v1 `projects/` shelf unless you intend to mix them.
 
 After approving in the page, use the same entry with `make` and `export` and the
 same `--project` directory. Codex/Claude Code should read root `AGENTS.md` and

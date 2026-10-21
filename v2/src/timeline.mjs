@@ -81,6 +81,7 @@ export async function captions(root,value,total) {
 }
 export function arrange(inputs,tasks,total) {
   const videos=tasks.filter(t=>t.kind!=='audio');
+  if(!inputs.length&&!videos.length)fail('Audio-only projects need a local video clip, generated video, or still image with explicit seconds');
   const fixed=inputs.reduce((s,c)=>s+(c.duration??0),0)+videos.reduce((s,t)=>s+t.seconds,0),flex=inputs.filter(c=>c.duration===null).length;
   if(fixed>total+0.001||(!flex&&Math.abs(fixed-total)>0.02))fail('Authored clip durations must fit requested length');
   const per=flex?(total-fixed)/flex:0;if(flex&&per<=0)fail('No time remains for local clips');

@@ -44,10 +44,11 @@ export async function config(root) {
   if (c.checks && (Object.keys(c.checks).some(x => x !== 'auto_clips') || typeof c.checks.auto_clips !== 'boolean')) fail('Invalid checks settings');
   const ids = new Set();
   for (const m of c.make) {
-    if (!m || Object.keys(m).some(x => !['id','with','prompt','seconds','kind','options','start','volume','inputs'].includes(x))) fail('Invalid make task');
+    if (!m || Object.keys(m).some(x => !['id','with','prompt','seconds','kind','options','start','volume','inputs','track'].includes(x))) fail('Invalid make task');
     pluginID(m.id); pluginID(m.with);
     if (ids.has(m.id) || typeof m.prompt !== 'string' || m.prompt.length > 10000 || !Number.isFinite(m.seconds) || m.seconds <= 0 || m.seconds > 600) fail('Invalid or duplicate make task');
     if(!['video','audio'].includes(m.kind??'video'))fail('Unsupported generated media kind');
+    if(m.track!==undefined&&((m.kind??'video')!=='audio'||!['narration','bgm','sfx'].includes(m.track)))fail('Unsupported generated audio track');
     ids.add(m.id);
   }
   for (const f of c.use) { const media=typeof f==='string'?f:f?.path;if(typeof media!=='string'||!media.startsWith('assets/'))fail('Inputs must be inside assets/');await inside(root,media); }
@@ -66,8 +67,9 @@ async function buildPlan(root) {
   for (const configuredTask of c.make) {
     const { manifest, implementation } = await plugin(root, configuredTask.with, true,{mode:c.execution});
     const task=implementation.normalize?await implementation.normalize(structuredClone(configuredTask),{format:c.format,defaults:manifest.settings.defaults}):configuredTask;
-    const {options:configuredOptions,...configuredFields}=configuredTask,{options:resolvedOptions,...resolvedFields}=task??{};
-    if(json(configuredFields)!==json(resolvedFields))fail('Plugin normalization may only fill source options');
+    const {options:configuredOptions,track:configuredTrack,...configuredFields}=configuredTask,{options:resolvedOptions,track:resolvedTrack,...resolvedFields}=task??{};
+    if(json(configuredFields)!==json(resolvedFields)||configuredTrack!==undefined&&configuredTrack!==resolvedTrack)fail('Plugin normalization may only fill source options');
+    if(resolvedTrack!==undefined&&!['narration','bgm','sfx'].includes(resolvedTrack))fail('Unsupported generated audio track');
     if (!manifest.capabilities.includes('source') || typeof implementation.make !== 'function') fail('Plugin cannot make clips');
     if(manifest.mediaKinds&&!manifest.mediaKinds.includes(task.kind??'video'))fail('Plugin cannot make requested media kind');
     const files=await sourceInputs(root,configuredTask.inputs);
@@ -84,7 +86,7 @@ async function buildPlan(root) {
   for(const task of tasks.filter(t=>t.kind==='audio')) {
     const start=task.start??0,volume=task.volume??1;
     if(!Number.isFinite(start)||start<0||start+task.seconds>c.length+0.02||!Number.isFinite(volume)||volume<0||volume>4)fail('Generated audio exceeds timeline');
-    audio.push({id:task.id,path:`.tsugite/media/${task.key}.wav`,seconds:task.seconds,start,offset:0,volume,loop:false,kind:'narration',taskKey:task.key});
+    audio.push({id:task.id,path:`.tsugite/media/${task.key}.wav`,seconds:task.seconds,start,offset:0,volume,loop:false,kind:task.track??'narration',taskKey:task.key});
   }
   const knowledge = [];
   for (const file of c.knowledge) knowledge.push({ path: file, text: await read(root, file) });

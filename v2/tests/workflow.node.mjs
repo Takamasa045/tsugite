@@ -110,14 +110,17 @@ test('service budgets fixed-point reservations are atomic and never combined',()
   let l=reserve(ledger,[{id:'a',service:'one',credits:3.1},{id:'b',service:'two',credits:70}],{one:4,two:70});
   assert.deepEqual(budgetView(l),{one:{spent:0,reserved:3.1},two:{spent:0,reserved:70}});
   l.entries[0].status='started';settle(l,'a',2);assert.equal(budgetView(l).one.spent,2);
+  const unknown=reserve({entries:[]},[{id:'u',service:'one',credits:4}],{one:4});unknown.entries[0].status='started';settle(unknown,'u',null);assert.equal(unknown.entries[0].status,'uncertain');assert.equal(budgetView(unknown).one.reserved,4);
+  const missing=reserve({entries:[]},[{id:'m',service:'one',credits:4}],{one:4});missing.entries[0].status='started';assert.throws(()=>settle(missing,'m',undefined),/Credits must be finite/);assert.equal(missing.entries[0].status,'started');
   assert.throws(()=>reserve(l,[{id:'c',service:'one',credits:3}],{one:4,two:70}));
   assert.throws(()=>reserve(l,[{id:'d',service:'three',credits:1}],{one:4,two:70}),/No budget/);
   for(const credits of [-1,NaN,Infinity,0.0000001])assert.throws(()=>reserve(ledger,[{id:'bad',service:'one',credits}],{one:10}));
 });
-async function sourcePlugin(root,home,{id='mock-source',fail=false,credits=2,actual=credits,network=false}={}){
+async function sourcePlugin(root,home,{id='mock-source',fail=false,credits=2,actual=credits,network=false,omitCredits=false}={}){
   const directory=path.join(home,id);await newPlugin(directory,id);
   const pkg=await readJSON(directory,'package.json');pkg.tsugite.network=network;await write(directory,'package.json',pkg);
-  await write(directory,'index.mjs',`import {copyFile} from 'node:fs/promises';export default {quote:()=>({service:'mock-credit',credits:${credits}}),make:async({output,sample})=>{${fail?'throw new Error("simulated interrupted result")':`await copyFile(sample,output);return {credits:${actual}}`}}};`);
+  const result=omitCredits?'{}':`{credits:${actual}}`;
+  await write(directory,'index.mjs',`import {copyFile} from 'node:fs/promises';export default {quote:()=>({service:'mock-credit',credits:${credits}}),make:async({output,sample})=>{${fail?'throw new Error("simulated interrupted result")':`await copyFile(sample,output);return ${result}`}}};`);
   await addPlugin(root,directory);return directory;
 }
 test('failed plugin retains full reservation and refuses duplicate execution after failure',async t=>{
@@ -130,6 +133,11 @@ test('over-reported actual credits are uncertain rather than refunded or overspe
   const {root,home}=await fixture(t);await sourcePlugin(root,home,{actual:3});await settings(root,{make:[{id:'x',with:'mock-source',prompt:'test',seconds:3}],budget:{'mock-credit':2}});await plan(root);
   const ui=await page(t,root);await ui.submit('approve',{stage:'plan'});await assert.rejects(make(root),/exceeded reservation/);
   assert.equal((await state(root)).ledger.entries[0].status,'uncertain');
+});
+test('a missing credit field is a contract failure, not an unknown receipt',async t=>{
+  const {root,home}=await fixture(t);await sourcePlugin(root,home,{omitCredits:true});await settings(root,{make:[{id:'x',with:'mock-source',prompt:'test',seconds:3}],budget:{'mock-credit':2}});await plan(root);
+  const ui=await page(t,root);await ui.submit('approve',{stage:'plan'});await assert.rejects(make(root),/Credits must be finite/);
+  const saved=await state(root);assert.equal(saved.ledger.entries[0].status,'uncertain');assert.equal(saved.jobs[Object.keys(saved.jobs)[0]].status,'uncertain');
 });
 test('plugin network and contract checks, scaffold mock test, tamper invalidation',async t=>{
   const {root,home}=await fixture(t);const directory=await sourcePlugin(root,home);
