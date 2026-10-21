@@ -68,6 +68,26 @@ test('live image-to-video uploads the bound still before generate and keeps unkn
   assert.equal((await state(root)).jobs[planned.plan.tasks[0].key].providerJobId,'77');
   assert.equal((await state(root)).ledger.entries[0].status,'uncertain');
 });
+test('live extend uploads the bound video before generate and quotes V6 generated-duration rates',async t=>{
+  const {root,home}=await fixture(t);await addPlugin(root,await bundledPlugin('pixverse'));await connection(home);
+  await settings(root,{length:'5s',use:[],execution:'live',make:[{id:'shot',with:'pixverse',prompt:'continue the scene',seconds:5,options:{mode:'extend',quality:'360p'},inputs:['assets/intro.mp4']}],budget:{pixverse:100}});
+  const planned=await plan(root);assert.equal(planned.plan.tasks[0].quote.credits,25);assert.equal(planned.plan.tasks[0].inputs[0].path,'assets/intro.mp4');
+  const ui=await page(t,root);await ui.submit('approve',{stage:'plan'});
+  const oldFetch=globalThis.fetch,oldKey=process.env.TSUGITE_FIXTURE_KEY;let uploaded=false,generated=false;
+  t.after(()=>{globalThis.fetch=oldFetch;if(oldKey===undefined)delete process.env.TSUGITE_FIXTURE_KEY;else process.env.TSUGITE_FIXTURE_KEY=oldKey;});
+  process.env.TSUGITE_FIXTURE_KEY='fixture-private-secret';
+  const bytes=await fs.readFile(path.join(root,'assets/intro.mp4'));
+  globalThis.fetch=async(url,o)=>{
+    if(url.includes('/media/upload')){uploaded=true;assert.ok(o.body instanceof FormData);return Response.json({ErrCode:0,Resp:{media_id:44}});}
+    if(url.includes('/extend/generate')){assert.ok(uploaded);generated=true;assert.equal(JSON.parse(o.body).video_media_id,44);return Response.json({ErrCode:0,Resp:{video_id:88}});}
+    if(url.includes('/result/'))return Response.json({ErrCode:0,Resp:{id:88,status:1,url:'https://media.fixture.test/a.mp4'}});
+    return new Response(bytes);
+  };
+  await assert.rejects(make(root),/Credits must/);
+  assert.equal(uploaded,true);assert.equal(generated,true);
+  assert.equal((await state(root)).jobs[planned.plan.tasks[0].key].providerJobId,'88');
+  assert.equal((await state(root)).ledger.entries[0].status,'uncertain');
+});
 test('a normalization hook cannot switch the provider or other source intent',async t=>{
   const {root,home}=await fixture(t),directory=path.join(home,'normalizer');await newPlugin(directory,'normalizer');
   await fs.writeFile(path.join(directory,'index.mjs'),"export default {quote:()=>({service:'local',credits:0}),make:async()=>{},normalize:t=>({...t,with:'local'})};");await addPlugin(root,directory);

@@ -88,6 +88,21 @@ make:
       voice_id: mock-voice
       model: eleven_multilingual_v2
       stability: 0.5
+  - id: score
+    with: elevenlabs
+    kind: audio
+    prompt: Synthetic music fixture
+    seconds: 8
+    options:
+      mode: music
+      force_instrumental: true
+  - id: hit
+    with: elevenlabs
+    kind: audio
+    prompt: Synthetic whoosh
+    seconds: 1.5
+    options:
+      mode: sfx
 ```
 
 No key, account or live request is used. Mock quotes and settlements are zero;

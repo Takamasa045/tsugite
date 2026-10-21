@@ -70,6 +70,28 @@ test('PixVerse image mocks bind local still hashes and reject text-mode inputs',
   await settings(root,{make:[{id:'shot',with:'pixverse',prompt:'mock picture',seconds:5,options:{mode:'image'},inputs:['assets/oversize.png']}]});
   await assert.rejects(plan(root),/20 MB/);
 });
+test('PixVerse video modes and ElevenLabs music/SFX bind local contracts without credits',async t=>{
+  const {root}=await fixture(t);await addPlugin(root,path.join(plugins,'pixverse'));await addPlugin(root,path.join(plugins,'elevenlabs'));
+  await settings(root,{length:'5s',use:[],execution:'mock',make:[{id:'shot',with:'pixverse',prompt:'continue the scene',seconds:5,options:{mode:'extend'},inputs:['assets/intro.mp4']}]});
+  const extended=await plan(root);
+  assert.equal(extended.plan.tasks[0].options.mode,'extend');
+  assert.equal(extended.plan.tasks[0].inputs[0].path,'assets/intro.mp4');
+  assert.ok(extended.plan.tasks[0].inputs[0].seconds>0);
+  assert.ok(extended.plan.tasks[0].inputs[0].width>0);
+  assert.ok(extended.plan.tasks[0].inputs[0].height>0);
+  await settings(root,{length:'8s',use:[{path:'assets/intro.mp4',loop:true}],make:[{id:'score',with:'elevenlabs',kind:'audio',prompt:'upbeat cue',seconds:8,options:{mode:'music',force_instrumental:true}}]});
+  const music=await plan(root);
+  assert.equal(music.plan.tasks[0].options.mode,'music');
+  assert.equal(music.plan.tasks[0].options.model,'music_v2_5');
+  await settings(root,{length:'2s',use:[{path:'assets/intro.mp4',seconds:2}],make:[{id:'hit',with:'elevenlabs',kind:'audio',prompt:'door slam',seconds:1.5,options:{mode:'sfx',prompt_influence:0.4}}]});
+  const sfx=await plan(root);
+  assert.equal(sfx.plan.tasks[0].options.mode,'sfx');
+  assert.equal(sfx.plan.tasks[0].options.model,'eleven_text_to_sound_v2');
+  await settings(root,{length:'5s',use:[],make:[{id:'shot',with:'pixverse',prompt:'continue',seconds:5,options:{mode:'extend'}}]});
+  await assert.rejects(plan(root),/exactly one local video/);
+  await settings(root,{use:[{path:'assets/intro.mp4',loop:true}],make:[{id:'score',with:'elevenlabs',kind:'audio',prompt:'cue',seconds:2,options:{mode:'music'}}]});
+  await assert.rejects(plan(root),/3–600/);
+});
 test('service video and narration mocks run with zero provider credits and are content bound',async t=>{
   const {root}=await fixture(t);await addPlugin(root,path.join(plugins,'pixverse'));await addPlugin(root,path.join(plugins,'elevenlabs'));
   await settings(root,{length:'8s',execution:'mock',make:[{id:'shot',with:'pixverse',prompt:'mock picture',seconds:5},{id:'voice',with:'elevenlabs',kind:'audio',prompt:'mock voice',seconds:3,options:{voice_id:'fixture-voice'}}]});
