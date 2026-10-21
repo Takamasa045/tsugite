@@ -18,8 +18,8 @@ test('live configuration is plan-bound, credentials are lazy and page approval p
   await assert.rejects(make(root),/Waiting for plan/);const ui=await page(t,root);assert.match(ui.html,/LIVE: approved make/);assert.match(ui.html,/api.fixture.test/);await ui.submit('approve',{stage:'plan'});
   process.env.TSUGITE_FIXTURE_KEY='fixture-private-secret';const bytes=await fs.readFile(path.join(root,'assets/intro.mp4'));
   globalThis.fetch=async(url,o)=>{calls++;if(url.includes('text/generate'))return Response.json({ErrCode:0,Resp:{video_id:123,credits:21}});if(url.includes('result/'))return Response.json({ErrCode:0,Resp:{id:123,status:1,url:'https://media.fixture.test/a.mp4'}});assert.deepEqual(o.headers,{});return new Response(bytes);};
-  await assert.rejects(make(root),/Credits must/);assert.equal(calls,3);const saved=await state(root);assert.equal(saved.jobs[planned.plan.tasks[0].key].providerJobId,'123');assert.equal(saved.ledger.entries[0].status,'uncertain');assert.ok(!JSON.stringify(saved).includes('fixture-private-secret'));assert.ok(!JSON.stringify(planned).includes('fixture-private-secret'));
-  await assert.rejects(make(root),/Uncertain/);assert.equal(calls,3);await connection(home,{base_url:'https://changed.fixture.test'});await assert.rejects(currentPlan(root),/no longer matches/);
+  const made=await make(root);assert.equal(made.made,1);assert.equal(calls,3);const saved=await state(root);assert.equal(saved.jobs[planned.plan.tasks[0].key].status,'done');assert.ok(saved.jobs[planned.plan.tasks[0].key].hash);assert.equal(saved.jobs[planned.plan.tasks[0].key].providerJobId,'123');assert.equal(saved.ledger.entries[0].status,'uncertain');assert.ok(!JSON.stringify(saved).includes('fixture-private-secret'));assert.ok(!JSON.stringify(planned).includes('fixture-private-secret'));
+  await make(root);assert.equal(calls,3);await connection(home,{base_url:'https://changed.fixture.test'});await assert.rejects(currentPlan(root),/no longer matches/);
 });
 test('missing connection consent, raw secrets and nested defaults fail closed',async t=>{
   const {root,home}=await fixture(t);await addPlugin(root,await bundledPlugin('pixverse'));await settings(root,{execution:'live',make:[{id:'shot',with:'pixverse',prompt:'fixture',seconds:3}],budget:{pixverse:30}});await assert.rejects(plan(root),/Select and enable/);
@@ -63,8 +63,9 @@ test('live image-to-video uploads the bound still before generate and keeps unkn
     if(url.includes('/result/'))return Response.json({ErrCode:0,Resp:{id:77,status:1,url:'https://media.fixture.test/a.mp4'}});
     return new Response(bytes);
   };
-  await assert.rejects(make(root),/Credits must/);
+  const made=await make(root);assert.equal(made.made,1);
   assert.equal(uploaded,true);assert.equal(generated,true);
+  assert.equal((await state(root)).jobs[planned.plan.tasks[0].key].status,'done');
   assert.equal((await state(root)).jobs[planned.plan.tasks[0].key].providerJobId,'77');
   assert.equal((await state(root)).ledger.entries[0].status,'uncertain');
 });
@@ -83,10 +84,33 @@ test('live extend uploads the bound video before generate and quotes V6 generate
     if(url.includes('/result/'))return Response.json({ErrCode:0,Resp:{id:88,status:1,url:'https://media.fixture.test/a.mp4'}});
     return new Response(bytes);
   };
-  await assert.rejects(make(root),/Credits must/);
+  const made=await make(root);assert.equal(made.made,1);
   assert.equal(uploaded,true);assert.equal(generated,true);
+  assert.equal((await state(root)).jobs[planned.plan.tasks[0].key].status,'done');
   assert.equal((await state(root)).jobs[planned.plan.tasks[0].key].providerJobId,'88');
   assert.equal((await state(root)).ledger.entries[0].status,'uncertain');
+});
+test('live ElevenLabs SFX keeps a null credit receipt as done media with the reservation held',async t=>{
+  const {root,home}=await fixture(t);await addPlugin(root,await bundledPlugin('elevenlabs'));await connection(home,{},'elevenlabs');
+  await settings(root,{length:'2s',use:[{path:'assets/intro.mp4',seconds:2}],execution:'live',make:[{id:'hit',with:'elevenlabs',kind:'audio',prompt:'door slam',seconds:2,options:{mode:'sfx',max_credits:200}}],budget:{elevenlabs:200}});
+  const planned=await plan(root);assert.equal(planned.plan.tasks[0].quote.credits,200);assert.equal(planned.plan.timeline.audio.find(a=>a.id==='hit').kind,'sfx');
+  const ui=await page(t,root);await ui.submit('approve',{stage:'plan'});
+  const oldFetch=globalThis.fetch,oldKey=process.env.TSUGITE_FIXTURE_KEY;
+  t.after(()=>{globalThis.fetch=oldFetch;if(oldKey===undefined)delete process.env.TSUGITE_FIXTURE_KEY;else process.env.TSUGITE_FIXTURE_KEY=oldKey;});
+  process.env.TSUGITE_FIXTURE_KEY='fixture-private-secret';
+  const fixtureAudio=path.join(root,'assets/fixture-sfx.wav');
+  await command('ffmpeg',['-nostdin','-v','error','-n','-f','lavfi','-i','sine=frequency=440:sample_rate=48000','-t','2','-c:a','pcm_s16le',fixtureAudio]);
+  const bytes=await fs.readFile(fixtureAudio);
+  globalThis.fetch=async(url,o)=>{
+    if(String(url).includes('/v1/sound-generation')){assert.equal(JSON.parse(o.body).duration_seconds,2);return new Response(bytes);}
+    return oldFetch(url,o);
+  };
+  const made=await make(root);assert.equal(made.made,1);
+  const saved=await state(root),job=saved.jobs[planned.plan.tasks[0].key];
+  assert.equal(job.status,'done');assert.ok(job.hash);assert.equal(saved.ledger.entries[0].status,'uncertain');
+  await ui.refresh();assert.match(ui.html,/assets\/receipt\.json/);
+  const leftover=path.join(root,'.tsugite','media',planned.plan.tasks[0].key+'.wav.mp3');
+  await assert.rejects(fs.access(leftover),/ENOENT/);
 });
 test('a normalization hook cannot switch the provider or other source intent',async t=>{
   const {root,home}=await fixture(t),directory=path.join(home,'normalizer');await newPlugin(directory,'normalizer');

@@ -3,7 +3,9 @@
 Offline and mock mode require no account. `execution: live` is a separate,
 explicit selection. Install a reviewed source package, choose the API origin,
 credential environment-variable name and download origins in your private
-`~/.tsugite/config.json` (`TSUGITE_HOME` for tests). This file stores references
+`~/.tsugite/config.json`. Isolate that private home with `TSUGITE_HOME` (tests
+and local runs). v2 does not read `TSUGITE_PROJECTS_HOME`; that variable belongs
+to the v1 launcher shelf. This file stores references
 and scalar defaults, never a key or token value. No credential is created or
 changed by Tsugite. Do not put credentials in YAML, notes or receipts.
 
@@ -99,12 +101,24 @@ The CLI/MCP cannot approve or settle a job.
   with a prompt. Prompt text is capped at 4100 characters. The HTTP wait is
   `60s + 2s` per requested second, capped at 20 minutes (speech stays 30s).
   Composition plans and inpainting are unimplemented. Credits stay an explicit
-  `max_credits`; none are invented from duration.
+  `max_credits`; none are invented from duration. Published figures disagree:
+  the subscription FAQ lists about 900 credits/minute for Eleven Music, while
+  ElevenAPI lists USD $0.15/minute and does not publish a credit unit. Treat
+  `max_credits` as a reservation ceiling and reconcile the ledger charge on the
+  page. A 2-second fixture cannot derive a reliable number from those tables.
 - ElevenLabs sound effects: `options.mode: sfx`, model
   `eleven_text_to_sound_v2` only, `/v1/sound-generation`. `seconds` is 0.5–30;
   optional `prompt_influence` 0–1 and `loop`. Binary audio is converted locally
   to WAV. The same duration-based HTTP wait applies. Voice settings and
-  `voice_id` are rejected.
+  `voice_id` are rejected. Published figures also disagree: the subscription
+  FAQ lists 200 credits per generation, product docs mention 40 credits/s when
+  duration is set, and ElevenAPI lists USD $0.12/minute. Do not invent
+  `max_credits` from those rows; reserve at or above the account you will
+  check, then settle the receipt on the page.
+  The HTTP transport returns `credits: null`. A received WAV is a successful
+  artifact; the reservation stays uncertain until the confirmation page
+  records the actual charge. Temporary `*.wav.mp3` conversion files are
+  removed after success or conversion failure.
 
 The local budget bounds accepted reservations and future calls. It cannot force
 a remote service to honor an estimate, refund a failure or charge no more than

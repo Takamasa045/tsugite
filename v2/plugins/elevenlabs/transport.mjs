@@ -52,6 +52,13 @@ async function convertMp3(settings,temporary,output){
   if(settings.convert)await settings.convert(temporary,output);
   else try{await promisify(execFile)(process.env.TSUGITE_FFMPEG||'ffmpeg',['-nostdin','-v','error','-n','-protocol_whitelist','file,pipe','-i',temporary,'-ac','1','-ar','48000','-c:a','pcm_s16le',output],{timeout:120000,windowsHide:true,maxBuffer:1000000});}catch{throw new Error('Audio received but local conversion failed; do not resubmit');}
 }
+async function writeAudio(settings,bytes,output){
+  const temporary=path.join(path.dirname(output),path.basename(output)+'.mp3');
+  try{
+    await fs.writeFile(temporary,bytes,{flag:'wx'});
+    await convertMp3(settings,temporary,output);
+  }finally{await fs.rm(temporary,{force:true});}
+}
 export function createTransport(settings){
   const http=channel({...settings,header:'xi-api-key'});
   return {async make({task,output,onSubmitted}){
@@ -60,14 +67,11 @@ export function createTransport(settings){
     if(mode==='speech'){
       const r=await http.json('/v1/text-to-speech/'+encodeURIComponent(task.options.voice_id)+'/with-timestamps?output_format=mp3_44100_128',body);
       const b64=r.audio_base64;if(typeof b64!=='string'||b64.length>32*1024*1024||!b64.length||!/^[A-Za-z0-9+/]*={0,2}$/.test(b64))throw new Error('Invalid speech audio; reconcile outcome');
-      const temporary=path.join(path.dirname(output),path.basename(output)+'.mp3');await fs.writeFile(temporary,Buffer.from(b64,'base64'),{flag:'wx'});
-      await convertMp3(settings,temporary,output);
+      await writeAudio(settings,Buffer.from(b64,'base64'),output);
       return {credits:null,alignment:r.alignment??null};
     }
     const pathName=mode==='music'?'/v1/music?output_format=mp3_44100_128':'/v1/sound-generation?output_format=mp3_44100_128';
-    const bytes=await http.binary(pathName,body,undefined,requestTimeout(task));
-    const temporary=path.join(path.dirname(output),path.basename(output)+'.mp3');await fs.writeFile(temporary,bytes,{flag:'wx'});
-    await convertMp3(settings,temporary,output);
+    await writeAudio(settings,await http.binary(pathName,body,undefined,requestTimeout(task)),output);
     return {credits:null};
   }};
 }

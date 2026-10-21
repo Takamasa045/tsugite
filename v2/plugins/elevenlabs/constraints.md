@@ -17,11 +17,13 @@ from v1 is not this HTTP transport. Offline mode blocks the network entry.
 Explicit mock mode produces synthetic zero-credit media and validates the same
 request/payload contract as planning, including an explicit `voice_id`. Live
 quotes require an explicit positive `max_credits`; they do not invent a charge
-from character count. Live mode requires an explicitly enabled private
+from character count, duration, or the published music/SFX rate tables (those
+tables disagree on credits vs USD). Live mode requires an explicitly enabled private
 connection, a service budget, and a page-approved plan. Keys are read lazily
 from the chosen environment reference, never written to the project.
 Credentials never belong in source options. The synchronous endpoint has no
-durable task id; unknown credits stay reserved.
+durable task id; a `credits: null` receipt keeps the reservation and still
+marks received audio as done. Temporary conversion files are removed.
 
 Unknown failures/credits hold the reservation; do not infer refunds or automatically repeat submission. Inspect the source package and the connection guide before enabling live mode. A local reservation is not a vendor-enforced remote billing cap.
 

@@ -84,7 +84,8 @@ async function buildPlan(root) {
   for(const task of tasks.filter(t=>t.kind==='audio')) {
     const start=task.start??0,volume=task.volume??1;
     if(!Number.isFinite(start)||start<0||start+task.seconds>c.length+0.02||!Number.isFinite(volume)||volume<0||volume>4)fail('Generated audio exceeds timeline');
-    audio.push({id:task.id,path:`.tsugite/media/${task.key}.wav`,seconds:task.seconds,start,offset:0,volume,loop:false,kind:'narration',taskKey:task.key});
+    const mode=task.options?.mode??'speech';
+    audio.push({id:task.id,path:`.tsugite/media/${task.key}.wav`,seconds:task.seconds,start,offset:0,volume,loop:false,kind:mode==='sfx'?'sfx':mode==='music'?'bgm':'narration',taskKey:task.key});
   }
   const knowledge = [];
   for (const file of c.knowledge) knowledge.push({ path: file, text: await read(root, file) });

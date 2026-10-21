@@ -110,6 +110,7 @@ test('service budgets fixed-point reservations are atomic and never combined',()
   let l=reserve(ledger,[{id:'a',service:'one',credits:3.1},{id:'b',service:'two',credits:70}],{one:4,two:70});
   assert.deepEqual(budgetView(l),{one:{spent:0,reserved:3.1},two:{spent:0,reserved:70}});
   l.entries[0].status='started';settle(l,'a',2);assert.equal(budgetView(l).one.spent,2);
+  const unknown=reserve({entries:[]},[{id:'u',service:'one',credits:4}],{one:4});unknown.entries[0].status='started';settle(unknown,'u',null);assert.equal(unknown.entries[0].status,'uncertain');assert.equal(budgetView(unknown).one.reserved,4);
   assert.throws(()=>reserve(l,[{id:'c',service:'one',credits:3}],{one:4,two:70}));
   assert.throws(()=>reserve(l,[{id:'d',service:'three',credits:1}],{one:4,two:70}),/No budget/);
   for(const credits of [-1,NaN,Infinity,0.0000001])assert.throws(()=>reserve(ledger,[{id:'bad',service:'one',credits}],{one:10}));
