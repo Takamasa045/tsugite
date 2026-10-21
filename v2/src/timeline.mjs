@@ -13,7 +13,7 @@ export async function sourceInputs(root,value) {
     if(typeof media!=='string'||!media.startsWith('assets/'))fail('Make inputs must be inside assets/');
     const file=await asset(root,media),stat=await fs.stat(file);
     if(stat.size>32*1024*1024)fail('Make input exceeds 32 MB');
-    result.push({path:media,hash:await fileHash(root,media)});
+    result.push({path:media,hash:await fileHash(root,media),bytes:stat.size});
   }
   return result;
 }
@@ -81,7 +81,7 @@ export function arrange(inputs,tasks,total) {
     const seconds=c.duration??per;if(!c.still&&!c.loop&&c.start+seconds>c.seconds+0.02)fail('Clip trim exceeds source duration');
     return {id:c.id,path:c.path,hash:c.hash,seconds,start:c.start,loop:c.loop,audio:c.audio,volume:c.volume,...(c.still?{still:true}:{})};
   });
-  for(const task of videos)clips.push({id:task.id,path:`.tsugite/media/${task.key}.mp4`,seconds:task.seconds,start:0,loop:false,audio:false,volume:1,taskKey:task.key});
+  for(const task of videos)clips.push({id:task.id,path:`.tsugite/media/${task.key}.mp4`,seconds:task.seconds,start:0,loop:false,audio:task.options?.audio===true,volume:1,taskKey:task.key});
   if(!clips.length)fail('Timeline needs at least one video clip');
   return clips;
 }

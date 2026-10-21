@@ -24,6 +24,10 @@ export function request(task) {
   if(mode==='text'&&files.length)throw new Error('Text generation does not take local media inputs');
   if(mode==='image'){if(files.length!==1)throw new Error('Image-to-video needs exactly one local image input');imageInput(files[0]);}
   if(mode==='transition'){if(files.length!==2)throw new Error('Transition needs first and last local image inputs');files.forEach(imageInput);}
+  for(const file of files){
+    imageInput(file);
+    if(typeof file==='object'&&Number.isFinite(file.bytes)&&file.bytes>20*1024*1024)throw new Error('PixVerse image exceeds the 20 MB upload limit');
+  }
   if(definition.kind==='audio'&&typeof options.voice_id!=='string')throw new Error('Choose a voice_id explicitly');
   return {service:definition.id,kind:definition.kind,prompt:task.prompt,seconds:task.seconds,options};
 }
@@ -34,5 +38,6 @@ export function reconcile(receipt) {
   return {providerJobId:receipt.provider_job_id,status:receipt.status,actualCredits:known?receipt.credits_charged:null,releaseReservation:receipt.status==='failed'&&known&&receipt.credits_charged===0};
 }
 export function normalize(task,{format='16:9',defaults={}}={}){const options={model:'v6',quality:'360p',aspect:format,mode:'text',...defaults,...task.options};const value={...task,options};request(value);payload(value);return value;}
-const implementation={normalize,quote(task){const t=normalize(task),expected=({'360p':5,'540p':7,'720p':9,'1080p':18})[t.options.quality]*t.seconds,maximum=t.options.max_credits??expected;if(maximum<expected)throw new Error('Credit maximum is below the documented estimate');return {service:'pixverse',credits:maximum,estimate:expected,pricingAsOf:'2026-10-18'};},connect(connection){return {...implementation,async make(args){return createTransport({...connection,key:connection.credential(),fetch:globalThis.fetch}).make(args);}};},async make(){throw new Error('Live execution is disabled without an explicit configured connection');}};
+const RATES={off:{'360p':5,'540p':7,'720p':9,'1080p':18},on:{'360p':7,'540p':9,'720p':12,'1080p':23}};
+const implementation={normalize,quote(task){const t=normalize(task),expected=RATES[t.options.audio?'on':'off'][t.options.quality]*t.seconds,maximum=t.options.max_credits??expected;if(maximum<expected)throw new Error('Credit maximum is below the documented estimate');return {service:'pixverse',credits:maximum,estimate:expected,pricingAsOf:'2026-10-18'};},connect(connection){return {...implementation,async make(args){return createTransport({...connection,key:connection.credential(),fetch:globalThis.fetch}).make(args);}};},async make(){throw new Error('Live execution is disabled without an explicit configured connection');}};
 export default implementation;

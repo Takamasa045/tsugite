@@ -5,6 +5,7 @@ import {muxSoftCaptions} from './subtitles.mjs';
 import {publicClipName} from './clips.mjs';
 export default {
   quote:()=>({service:'remotion',credits:0}),
+  supportsStills:true,
   async runtime(){
     const packages={};
     for(const name of ['remotion','@remotion/bundler','@remotion/renderer','@remotion/media','react','react-dom']){

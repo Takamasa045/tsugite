@@ -4,7 +4,7 @@ Labs. Implements the documented timestamped text-to-speech protocol with
 synthetic HTTP tests; no live paid acceptance is claimed. Allowed speech models
 are `eleven_multilingual_v2` (default), `eleven_turbo_v2_5`, `eleven_flash_v2_5`
 and `eleven_v3`. Optional official `voice_settings` (`stability`,
-`similarity_boost`, `style`, `speed`, `use_speaker_boost`), `language_code` and
+`similarity_boost`, `style`, `speed` 0.7–1.2, `use_speaker_boost`), `language_code` and
 `apply_text_normalization` are forwarded when set. Hosted-MCP Eleven v4 / Turbo
 from v1 is not this HTTP transport. Offline mode blocks the network entry.
 Explicit mock mode produces synthetic zero-credit media and validates the same

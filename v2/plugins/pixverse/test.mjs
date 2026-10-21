@@ -8,9 +8,14 @@ test('request, payload and quote reject invalid estimates without a provider cal
   assert.equal(normalize(task).options.model,'v6');
   assert.equal(live.quote({...task,options:{quality:'360p'}}).credits,25);
   assert.equal(live.quote({...task,options:{quality:'360p'}}).estimate,25);
+  assert.equal(live.quote({...task,options:{quality:'720p'}}).credits,45);
+  assert.equal(live.quote({...task,options:{quality:'720p',audio:true}}).credits,60);
+  assert.equal(live.quote({...task,options:{quality:'720p',audio:true}}).estimate,60);
   assert.throws(()=>request({...task,seconds:16}),/Unsupported duration/);
   assert.throws(()=>normalize({...task,options:{quality:'99p'}}),/Unsupported PixVerse/);
   assert.throws(()=>live.quote({...task,options:{quality:'360p',max_credits:24}}),/below the documented estimate/);
+  assert.throws(()=>live.quote({...task,options:{quality:'720p',audio:true,max_credits:45}}),/below the documented estimate/);
+  assert.throws(()=>request({...task,options:{mode:'image'},inputs:[{path:'assets/first.png',bytes:20*1024*1024+1}]}),/20 MB/);
   assert.throws(()=>request({...task,options:{api_key:'do-not-store'}}),/credentials never belong/);
   assert.throws(()=>mock.quote({...task,options:{quality:'99p'}}),/Unsupported PixVerse/);
   assert.throws(()=>request({...task,options:{mode:'image'}}),/exactly one local image/);

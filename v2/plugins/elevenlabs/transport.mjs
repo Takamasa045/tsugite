@@ -4,7 +4,7 @@ import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {channel} from './http.mjs';
 const MODELS=new Set(['eleven_multilingual_v2','eleven_turbo_v2_5','eleven_flash_v2_5','eleven_v3']);
-const SETTING=[['stability',0,1],['similarity_boost',0,1],['style',0,1],['speed',0.5,2]];
+const SETTING=[['stability',0,1],['similarity_boost',0,1],['style',0,1],['speed',0.7,1.2]];
 export function payload(task){
   const o=task.options??{},model=o.model??'eleven_multilingual_v2';
   if(typeof task.prompt!=='string'||!task.prompt.trim()||task.prompt.length>10000||typeof o.voice_id!=='string'||!/^[-a-zA-Z0-9_]{1,128}$/.test(o.voice_id)||!MODELS.has(model))throw new Error('Select a voice and a documented speech model');

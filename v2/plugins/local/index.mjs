@@ -24,6 +24,7 @@ export async function sample(file, seconds = 3) {
 }
 export default {
   quote: () => ({ service: 'local', credits: 0 }),
+  supportsStills: true,
   make: async ({ output, task }) => { await sample(output, task.seconds); return { credits: 0 }; },
   analyze:probe,
   validate:async timeline=>{if(timeline.captions?.length&&timeline.captionMode==='burn'){const {stdout}=await command('ffmpeg',['-hide_banner','-filters']);if(!/\bsubtitles\s/.test(stdout))throw new Error('Caption burn-in requires FFmpeg with libass; configure TSUGITE_FFMPEG before planning');}},

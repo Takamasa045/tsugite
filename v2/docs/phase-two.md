@@ -36,7 +36,9 @@ Clip source bounds, audio offsets, durations and caption times are validated
 before approval. Fixed clip durations must fit the requested total; unspecified
 local clip durations share remaining time. String-only sample inputs can loop.
 PNG, JPEG and WebP stills are allowed in `use` when `seconds` is explicit; they
-hold that duration and cannot request source audio or a trim start.
+hold that duration and cannot request source audio or a trim start. Only the
+local renderer and Remotion hold stills; Fast Edit and HyperFrames refuse that
+combination at planning.
 The local renderer always writes a consistent audio stream; omitted sound is
 silence. Audio tracks can be BGM, narration or SFX and are volume-limited in mix.
 

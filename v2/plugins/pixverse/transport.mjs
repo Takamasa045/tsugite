@@ -10,7 +10,8 @@ export function payload(task){
 }
 export function liveBody(task,ids=[]){
   const body=payload(task),mode=task.options?.mode??'text';
-  if(mode==='text')return {...body,aspect_ratio:task.options?.aspect??'16:9'};
+  const audio=task.options?.audio===true;
+  if(mode==='text')return {...body,aspect_ratio:task.options?.aspect??'16:9',...(task.options?.audio===undefined?{}:{generate_audio_switch:audio})};
   if(mode==='image'){
     if(ids.length!==1)throw new Error('Image-to-video needs an uploaded image id');
     return {...body,img_id:Number(ids[0]),generate_audio_switch:task.options?.audio===true};

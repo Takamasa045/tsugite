@@ -45,6 +45,8 @@ test('PixVerse image and transition upload before generate, and never send JSON 
   assert.equal(generatePath(transitionTask),'/openapi/v2/video/transition/generate');
   assert.deepEqual(liveBody(imageTask,['123456789']),{model:'v6',prompt:'synthetic fixture',duration:5,quality:'360p',img_id:123456789,generate_audio_switch:false});
   assert.deepEqual(liveBody(transitionTask,['1','2']),{model:'v6',prompt:'synthetic fixture',duration:5,quality:'540p',first_frame_img:1,last_frame_img:2,generate_audio_switch:true});
+  assert.equal(liveBody(video,[]).generate_audio_switch,undefined);
+  assert.equal(liveBody({...video,options:{audio:true}},[]).generate_audio_switch,true);
   const calls=[];let persisted=false;
   const transport=pixverse({...config,fetch:async(url,options)=>{
     calls.push({url,options});
@@ -79,5 +81,6 @@ test('ElevenLabs forwards documented models and voice settings without inventing
 test('unsupported models, task identifiers and settings fail before any request',()=>{
   assert.throws(()=>pixPayload({...video,options:{model:'unsupported'}}));assert.throws(()=>klingPayload(video,'../escape'));assert.throws(()=>voicePayload({...video,options:{voice_id:'../voice'}}));assert.throws(()=>pixPayload({...video,seconds:16}));
   assert.throws(()=>voicePayload({prompt:'spoken',seconds:3,options:{voice_id:'fixture_voice',model:'eleven_v4_turbo'}}));
+  assert.throws(()=>voicePayload({prompt:'spoken',seconds:3,options:{voice_id:'fixture_voice',speed:0.5}}));
   assert.throws(()=>pixPayload({...video,options:{mode:'other'}}));
 });

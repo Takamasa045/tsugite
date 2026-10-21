@@ -43,7 +43,9 @@ the core persists its nonsecret job identity while retaining the reservation. `i
 are the resolved `make.inputs` files (project-local, hashed into the plan, not timeline
 clips). `sample` is the first of those files, or the first `use` clip when none were
 declared. Image-to-video plugins must read `inputs`, not assume `sample` is a still.
-Offline `renderer` implementations provide `render({timeline, inputs, audio, output, scratch})`. Optional `runtime()`
+Offline `renderer` implementations provide `render({timeline, inputs, audio, output, scratch})`.
+Set `supportsStills: true` only when the renderer can hold PNG/JPEG/WebP stills;
+otherwise planning rejects that combination. Optional `runtime()`
 metadata is bound to the plan; the Remotion plugin records tested package versions
 and existing-browser identity. Source/render calls receive cloned plan inputs. The timeline is versioned,
 sequential, with format, total seconds and clips `{id,path,seconds,taskKey?}`.

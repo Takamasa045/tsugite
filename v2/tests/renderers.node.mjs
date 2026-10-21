@@ -84,3 +84,13 @@ test('HyperFrames synthetic mock renders without enabling the unverified runtime
   const {root}=await fixture(t);await addPlugin(root,fileURLToPath(new URL('../plugins/hyperframes/',import.meta.url)));await settings(root,{length:'1s',export:'hyperframes',execution:'mock'});await plan(root);
   const ui=await page(t,root);assert.match(ui.html,/MOCK: synthetic/);await ui.submit('approve',{stage:'plan'});await make(root);const result=await exportVideo(root);assert.ok(Math.abs(result.seconds-1)<0.15);
 });
+test('HyperFrames and Fast Edit refuse still-image holds at plan time',async t=>{
+  const {root}=await fixture(t);
+  await command('ffmpeg',['-nostdin','-v','error','-n','-f','lavfi','-i','color=c=red:s=360x640','-frames:v','1',path.join(root,'assets/hold.png')]);
+  await addPlugin(root,fileURLToPath(new URL('../plugins/hyperframes/',import.meta.url)));
+  await addPlugin(root,fileURLToPath(new URL('../plugins/fast-edit/',import.meta.url)));
+  await settings(root,{length:'1s',export:'hyperframes',execution:'mock',use:[{path:'assets/hold.png',seconds:1}]});
+  await assert.rejects(plan(root),/does not hold still images/);
+  await settings(root,{export:'fast-edit',execution:'mock'});
+  await assert.rejects(plan(root),/does not hold still images/);
+});

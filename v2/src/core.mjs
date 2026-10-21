@@ -80,6 +80,7 @@ async function buildPlan(root) {
     tasks.push({ ...bound, quote, key: identity });
   }
   const clips=arrange(inputs,tasks,c.length);
+  if(clips.some(clip=>clip.still)&&!renderer.implementation.supportsStills)fail('This renderer does not hold still images');
   for(const task of tasks.filter(t=>t.kind==='audio')) {
     const start=task.start??0,volume=task.volume??1;
     if(!Number.isFinite(start)||start<0||start+task.seconds>c.length+0.02||!Number.isFinite(volume)||volume<0||volume>4)fail('Generated audio exceeds timeline');
