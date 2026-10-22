@@ -68,7 +68,7 @@ Every job has a `project.yaml`. Copyable examples live under `examples/`. Your w
 | --- | --- | --- |
 | PixVerse / Kling CLI adapters | Text-to-video and image-to-video through the pipeline | [Optional adapters](optional-adapters.md) |
 | Prompt catalogs | Source-backed T2V / I2V advice for PixVerse, Kling, and Seedance. A catalog is not an execution capability and does not rewrite prompts | [Prompt guides](prompt-guides.md) |
-| Story guides | 34 narrative structures plus 35 film-grammar / AI-video principles, chosen with reasons | [Story guides](story-guides.md) |
+| Story guides | 34 narrative structures plus 36 film-grammar / AI-video principles, chosen with reasons | [Story guides](story-guides.md) |
 | TopView skill CLI | T2V and single-frame I2V | [TopView CLI](topview-cli.md) |
 | H3 Prompt Director | Typed Creative IR → deterministic English prompt for MiniMax H3 (`minimax-h3`) | [H3 Prompt Director](h3-prompt-director.md) |
 

@@ -113,6 +113,9 @@ is included in every plan. Nothing is uploaded by the core.
 `init`, `check`, `plan`, `make`, `export`, `note`, `clean`, `plugin` are the eight
 workflow commands. All operation results are JSON; `--json` is accepted for
 agent compatibility. `check --status` reads current checks, jobs and budget.
+`plugin story consult` can discuss structure before any media exists. It does not
+generate, send, spend, or approve. Binding a story plan later invalidates an old
+plan approval and does not regenerate media. See [story consult](docs/story-consult.ja.md).
 `clean` only previews; confirmation is in the page and moves old generated media
 into project trash. It never irreversibly deletes originals.
 

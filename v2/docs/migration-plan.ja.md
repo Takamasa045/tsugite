@@ -87,6 +87,16 @@
 
 段階2（P08 / P10 / B04 の実課金受け入れ）と、HyperFrames / MiniMax / Editframe / Hypit / Kling / Tesseract の実験枠は、この進捗の対象外です。
 
+## 物語構成の引き継ぎ（2026-10-22）
+
+調査対象の `f08f2c5` 以降、main に新しいコミットはありません。v2 には構成カタログも story plan もなく、短い story 知識パックと、素材の実物を見る guide だけでした。構成の正本は、リポジトリの `knowledge/story-frameworks/catalog.yaml` を v2 がデータとして読む形にしました。v1 の選定コードは移していません。v1 の変更は、原則の件数を 35 から 36 へ直した `docs/story-guides.md` と、同じ件数を書いていた `docs/reference.md` / `docs/reference.ja.md` だけです。
+
+`plugin story consult` は、画像・APIキー・FFmpeg・確認ページなしで構成相談を終えられます。依頼例は [物語・構成の相談](story-consult.ja.md) と [はじめての動画](onboarding/first-video.ja.md) にあります。採用した JSON を `story` として結ぶと、計画と確認ページに狙いとショット対応が出ます。構成を変えると既存の計画ハッシュが変わり、古い承認では先へ進めません。再確認対象は出しますが、素材は自動で作り直しません。
+
+機械検証は id、尺、参照、仕込みのつながりです。意味が伝わるかは採点しません。`intentionally_unrecovered` と `missed` は別です。曲を未確認のとき、拍や歌詞時刻は作りません。`ranking_weight` は並び順であり、出来の確率ではありません。story plan のない古い案件は、これまでどおり計画できます。
+
+この作業は課金・実生成・render・承認状態の拡張ではありません。段階2（P08 / P10 / B04）は引き続き最後です。出典が空のカタログ項目（構成 26/34、原則 19/36）は、空のまま区別して数えます。出典を後から作ることはしていません。2026-10-22 の `npm --prefix v2 run check` は **140 passed / 0 failed / skip 5** です。
+
 ## まだ分からないこと
 
 - 手元の案件数は所有者提供です。リポジトリでは再集計していません。

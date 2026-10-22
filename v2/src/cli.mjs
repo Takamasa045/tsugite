@@ -74,7 +74,7 @@ export async function main(argv = process.argv.slice(2)) {
     init:{'from-v1':{type:'string'},flatten:{type:'string'},'archive-v1':{type:'boolean'},template:{type:'string'},pack:{type:'string'}}, check:{status:{type:'boolean'}},
     plan:{'no-review':{type:'boolean'},open:{type:'boolean'},'no-open':{type:'boolean'},review:{type:'boolean'},port:{type:'string'}},
     make:{}, export:{}, note:{group:{type:'string'},global:{type:'boolean'},pack:{type:'string'},import:{type:'string'}}, clean:{},
-    plugin:{id:{type:'string'},to:{type:'string'},mock:{type:'boolean'},model:{type:'string'},output:{type:'string'},seconds:{type:'string'},'private-guide':{type:'string'}}, mcp:{}
+    plugin:{id:{type:'string'},to:{type:'string'},mock:{type:'boolean'},model:{type:'string'},output:{type:'string'},seconds:{type:'string'},'private-guide':{type:'string'},request:{type:'string'},entry:{type:'string'}}, mcp:{}
   };
   if (!Object.hasOwn(perCommand,command)) fail('Unknown command');
   const {values,positionals} = parseArgs({ args:extracted.argv.slice(1), options:{...options,...perCommand[command]},allowPositionals:true,strict:true });
@@ -106,7 +106,8 @@ export async function main(argv = process.argv.slice(2)) {
     else { if(positionals.length !== 1) fail('Quote the note text'); result = await locked(target,()=>addNote(target,positionals[0],values.group)); }
   } else if (command === 'plugin') {
     const [sub,value] = positionals;
-    if(sub!=='guide'&&('seconds' in values||'private-guide' in values))fail('Guidance options require plugin guide');
+    if(sub!=='guide'&&sub!=='story'&&('seconds' in values||'private-guide' in values))fail('Guidance options require plugin guide');
+    if(sub!=='story'&&('request' in values||'entry' in values))fail('Story options require plugin story');
     if (sub === 'guide') {
       const [operation,request]=positionals.slice(1);
       const allowed=operation==='select'?['private-guide']:operation==='preview'?['seconds']:[];
@@ -117,6 +118,15 @@ export async function main(argv = process.argv.slice(2)) {
       else if(operation==='preview'&&positionals.length===2)result=await guide.previewGuidance(root,values.seconds===undefined?3:Number(values.seconds));
       else if(operation==='review'&&[2,3].includes(positionals.length))result=await guide.reviewGuidance(root,request);
       else fail('Use plugin guide inspect | select assets/choice.json | preview | review [assets/observations.json]');
+    } else if (sub === 'story') {
+      const [operation, file] = positionals.slice(1);
+      const story = await import('./story.mjs');
+      const allowed = operation === 'consult' ? ['seconds', 'request', 'entry', 'output'] : [];
+      if (Object.keys(values).some(key => !['project', 'json', ...allowed].includes(key))) fail('Unsupported story option');
+      if (operation === 'consult' && positionals.length === 2) result = await story.consult({ request: values.request, seconds: values.seconds, entry: values.entry, output: values.output, root });
+      else if (operation === 'check' && positionals.length === 3) result = await story.checkStoryFile(root, file);
+      else if (operation === 'bind' && positionals.length === 3) result = await story.bindStory(root, file);
+      else fail('Use plugin story consult --request "..." [--seconds N] [--entry idea|script|material|decided] [--output file.json] | check file.json | bind file.json');
     } else if (sub === 'list' && positionals.length === 1) {
       const registry = await readJSON(root,'.tsugite/plugins.json',{});
       result = await Promise.all(['local',...Object.keys(registry)].map(async id => (await plugin(root,id)).manifest));
