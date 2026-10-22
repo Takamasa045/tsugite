@@ -68,7 +68,8 @@ Use `plugin analyze` for zero-credit local Whisper or Fast Edit proposals; never
 treat a proposal or mock transcript as an applied/approved final edit.
 Story structure can be discussed before media exists. `plugin story consult --request "..."`
 needs no image, API key, FFmpeg, or confirmation-page approval, and it does not generate
-or send anything. Keep unknown song timing unknown. `plugin story check` validates ids,
+or send anything. It reads the catalog shipped in this package and does not search a
+parent repository. Keep unknown song timing unknown. `plugin story check` validates ids,
 durations and references only. `plugin story bind` stores the authored plan for the next
 `plan` hash. A story change requires a new human plan check and lists shots to recheck.
 It does not regenerate media or approve anything. See [story consult](../../docs/story-consult.ja.md).
