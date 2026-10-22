@@ -110,7 +110,9 @@
 
 ## 物語構成の引き継ぎ（2026-10-22）
 
-調査対象の `f08f2c5` 以降、main に新しいコミットはありません。v2 には構成カタログも story plan もなく、短い story 知識パックと、素材の実物を見る guide だけでした。構成の正本はリポジトリの `knowledge/story-frameworks/catalog.yaml` です。v1 の選定コードは移していません。v1 の変更は、原則の件数を 35 から 36 へ直した `docs/story-guides.md` と、同じ件数を書いていた `docs/reference.md` / `docs/reference.ja.md` だけです。配布する v2 は正本と同じバイトを `v2/knowledge/story-frameworks/catalog.yaml` に同梱し、ライセンスと出典を同じディレクトリの `NOTICE.md` に置きます。相談はこの写しだけを読み、親リポジトリは探しません。同一性はテストで照合します。
+[#245](https://github.com/Takamasa045/tsugite/pull/245) と [#246](https://github.com/Takamasa045/tsugite/pull/246) は main に入っています。`plugin story consult` は git の作業ツリーでも npm 配布物でも動きます。配布物は `knowledge/story-frameworks/catalog.yaml` を同梱し、相談はこの写しだけを読みます。
+
+次の段落は、取り込み前に `f08f2c5` を調べた記録です。その時点の v2 には構成カタログも story plan もなく、短い story 知識パックと、素材の実物を見る guide だけでした。構成の正本はリポジトリの `knowledge/story-frameworks/catalog.yaml` です。v1 の選定コードは移していません。v1 の変更は、原則の件数を 35 から 36 へ直した `docs/story-guides.md` と、同じ件数を書いていた `docs/reference.md` / `docs/reference.ja.md` だけです。配布する v2 は正本と同じバイトを `v2/knowledge/story-frameworks/catalog.yaml` に同梱し、ライセンスと出典を同じディレクトリの `NOTICE.md` に置きます。相談はこの写しだけを読み、親リポジトリは探しません。同一性はテストで照合します。
 
 `plugin story consult` は、画像・APIキー・FFmpeg・確認ページなしで構成相談を終えられます。依頼例は [物語・構成の相談](story-consult.ja.md) と [はじめての動画](onboarding/first-video.ja.md) にあります。採用した JSON を `story` として結ぶと、計画と確認ページに狙いとショット対応が出ます。構成を変えると既存の計画ハッシュが変わり、古い承認では先へ進めません。再確認対象は出しますが、素材は自動で作り直しません。
 

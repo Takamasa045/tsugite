@@ -31,15 +31,26 @@ reservation until the confirmation page settles it. A missing `credits` field
 is still a contract failure. That one SFX request is the recorded paid
 acceptance. Speech and music paid acceptance are open.
 
-### #245 — story and structure conversation (open)
+### #245 and #246 — story conversation, and the catalog in the package
 
 [#245](https://github.com/Takamasa045/tsugite/pull/245) lets a project start
 from a structure conversation before footage. The conversation does not
-generate, send data out, or approve. Attaching the chosen structure changes
-the plan hash, so an old approval cannot continue. Footage is not rebuilt
-automatically. The command is not in this tree, so this draft does not include
-an example. Bundling the structure catalog into the v2 package is separate
-work. The catalog is data, not a promise that those forms can be generated.
+generate, send data out, spend credits, or approve. Attaching the chosen
+structure changes the plan hash, so an old approval cannot continue. Footage
+is not rebuilt automatically.
+[#246](https://github.com/Takamasa045/tsugite/pull/246) ships the same catalog
+bytes and the source notice inside the v2 package. `plugin story consult`
+works from a git checkout and from the npm package. It reads only
+`knowledge/story-frameworks/catalog.yaml` in that package. It does not search
+a parent directory. The catalog is data, not a promise that those forms can
+be generated.
+
+```sh
+npm run --silent v2 -- plugin story consult --request "60秒の静かな自然映像。ドラマ・CTA不要" --seconds 60
+```
+
+After you keep a JSON plan, run `plugin story check` and then
+`plugin story bind`, then `plan`.
 
 ## How PixVerse, Kling, and TopView connect
 

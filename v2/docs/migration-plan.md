@@ -155,6 +155,30 @@ Do not call the package formal 2.0.0 until every row below is met.
 
 The same judgment is in [requirements.md](requirements.md).
 
+## Story structure handoff (2026-10-22)
+
+[#245](https://github.com/Takamasa045/tsugite/pull/245) and
+[#246](https://github.com/Takamasa045/tsugite/pull/246) are on main.
+`plugin story consult` works from a git checkout and from the npm package.
+The package ships the same bytes as the repository catalog at
+`knowledge/story-frameworks/catalog.yaml`, with the license and sources in
+`NOTICE.md` beside it. Consult reads only that copy. It does not search a
+parent directory.
+
+The conversation finishes without images, an API key, FFmpeg, or the
+confirmation page. Examples are in [story consult](story-consult.ja.md).
+Binding the chosen JSON as `story` puts the intent and the shot mapping on
+the plan and the confirmation page. Changing the structure changes the plan
+hash, so an old approval cannot continue. Changed parts are listed for
+another look. Media is not rebuilt automatically.
+
+Checks cover ids, durations, references, and setup links. They do not score
+whether the meaning comes across. `ranking_weight` is sort order, not a
+probability of success. Older projects without a story plan still plan as
+before. This work does not extend billing, live generation, render, or
+approval state. The Japanese record is in
+[migration-plan.ja.md](migration-plan.ja.md).
+
 ## Still unknown
 
 - Production counts came from the owner. They were not re-counted in the

@@ -45,3 +45,4 @@ node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs export --project ./my-
 - [第三者試用キット](docs/onboarding/trial-kit.ja.md)
 - [プラグインとライセンス](docs/plugins.md)
 - [alpha.5の配布範囲](docs/release-alpha5.md)
+- [物語・構成の相談](docs/story-consult.ja.md)。`plugin story consult` は git の作業ツリーでも npm の配布物でも動きます。読むのは同梱の `knowledge/story-frameworks/catalog.yaml` だけです。

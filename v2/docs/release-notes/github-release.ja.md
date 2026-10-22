@@ -18,9 +18,15 @@ PixVerse V6 の image-to-video と first/last-frame transition、`make.inputs` �
 
 実課金の効果音 1 本（2秒）が、数値のクレジットを返さなかった。明示 `credits: null` は、受け取ったファイルを成功にし、予約は確認ページで精算するまで維持する。`credits` の欠落は、これまでどおり契約違反。この 1 件が、SFX の実課金受け入れ。音声と music の実課金受け入れは未了。
 
-### #245 — 物語と構成の相談（未マージ）
+### #245 と #246 — 物語と構成の相談、カタログの同梱
 
-[#245](https://github.com/Takamasa045/tsugite/pull/245) は、素材の前に構成だけ相談できるようにする。相談は生成も外部送信も承認もしない。採用した構成を結ぶと計画のハッシュが変わり、古い承認では先へ進めない。素材は自動では作り直さない。コマンドはいまのツリーに無いので、この下書きに実行例は置かない。構成カタログを v2 の配布物へ同梱する作業は別。カタログはデータであり、その型を生成できるという意味ではない。
+[#245](https://github.com/Takamasa045/tsugite/pull/245) は、素材の前に構成だけ相談できるようにする。相談は生成も外部送信も課金も承認もしない。採用した構成を結ぶと計画のハッシュが変わり、古い承認では先へ進めない。素材は自動では作り直さない。[#246](https://github.com/Takamasa045/tsugite/pull/246) は、同じバイトのカタログと出典を v2 の配布物へ同梱する。`plugin story consult` は git の作業ツリーでも npm のパッケージでも動き、読むのはパッケージ内の `knowledge/story-frameworks/catalog.yaml` だけである。親ディレクトリは探さない。カタログはデータであり、その型を生成できるという意味ではない。
+
+```sh
+npm run --silent v2 -- plugin story consult --request "60秒の静かな自然映像。ドラマ・CTA不要" --seconds 60
+```
+
+採用した JSON は `plugin story check` のあと `plugin story bind` で結び、続けて `plan` する。
 
 ## PixVerse、Kling、TopView のつなぎ方
 

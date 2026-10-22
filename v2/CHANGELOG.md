@@ -8,10 +8,12 @@ is in [docs/release-notes/](docs/release-notes/github-release.md).
 
 - Point the repository README at v2 for new work. Keep v1 `0.18.0` as
   maintenance for existing `project.yaml` productions. Document `init`,
-  `check`, `plan`, `make`, `export`, and `init --from-v1` (with `--flatten`
-  and `--archive-v1`) from the current CLI. The story conversation in
-  [#245](https://github.com/Takamasa045/tsugite/pull/245) is described without
-  a command example, because that command is not in this tree.
+  `check`, `plan`, `make`, `export`, `init --from-v1` (with `--flatten`
+  and `--archive-v1`), and `plugin story consult` from the current CLI.
+  Consult works from a git checkout and from the npm package:
+  [#246](https://github.com/Takamasa045/tsugite/pull/246) ships
+  `knowledge/story-frameworks/catalog.yaml` inside the package. The
+  conversation itself is [#245](https://github.com/Takamasa045/tsugite/pull/245).
 - Record merged alpha work: [#241](https://github.com/Takamasa045/tsugite/pull/241)
   (PixVerse image-to-video and transition, ElevenLabs voice settings, still
   holds), [#242](https://github.com/Takamasa045/tsugite/pull/242) (PixVerse

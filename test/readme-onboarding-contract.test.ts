@@ -93,7 +93,7 @@ describe("README onboarding contract", () => {
     }
   });
 
-  it("documents a v2 quick start with POSIX and PowerShell, and no missing story command", async () => {
+  it("documents a v2 quick start with POSIX and PowerShell, and story consult in the npm package", async () => {
     for (const readme of READMES) {
       const text = await readFile(readme.path, "utf8");
       const section = sectionByHeading(text, "## Quick start") || sectionByHeading(text, "## クイックスタート");
@@ -111,7 +111,11 @@ describe("README onboarding contract", () => {
       expect(text, readme.path).toContain("--flatten");
       expect(text, readme.path).toContain("--archive-v1");
       expect(text, readme.path).toContain("https://github.com/Takamasa045/tsugite/pull/245");
-      expect(text, readme.path).not.toContain("plugin story");
+      expect(text, readme.path).toContain("https://github.com/Takamasa045/tsugite/pull/246");
+      expect(text, readme.path).toContain("plugin story consult");
+      expect(text, readme.path).toContain("knowledge/story-frameworks/catalog.yaml");
+      expect(text, readme.path).toContain("plugin story check");
+      expect(text, readme.path).toContain("plugin story bind");
       expect(text, readme.path).not.toContain("credential_env");
       expect(text, readme.path).toMatch(/CLI/);
     }

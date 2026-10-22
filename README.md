@@ -69,9 +69,15 @@ The file is `my-video/out/final.mp4`. The sample creates no new assets, so clip 
 
 ## Start from a story conversation
 
-You can settle the structure before any footage or generation. The conversation needs no images and no confirmation page. After you attach the chosen structure to the project, `plan` above opens the page. Changing the structure invalidates the old approval. The changed parts are listed for another look. Footage is not rebuilt automatically.
+You can settle the structure before any footage or generation. The conversation needs no images and no confirmation page. It does not generate, send data out, spend credits, or approve. After you attach the chosen structure to the project, `plan` above opens the page. Changing the structure invalidates the old approval. The changed parts are listed for another look. Footage is not rebuilt automatically.
 
-That conversation is landing in the open pull request [#245](https://github.com/Takamasa045/tsugite/pull/245). It is not in the current v2 command list, so this page has no command example for it. Bundling the structure catalog into the v2 package is separate work. The catalog is data. It does not mean those forms can be generated.
+The same command works from this repository and from the npm package. Consult reads only the catalog shipped in the package, `knowledge/story-frameworks/catalog.yaml`. Sources are in `NOTICE.md` beside it. It does not search a parent directory. The catalog is data. It does not mean those forms can be generated.
+
+```sh
+npm run --silent v2 -- plugin story consult --request "60秒の静かな自然映像。ドラマ・CTA不要" --seconds 60
+```
+
+PowerShell uses the same line. After you keep a JSON plan, run `plugin story check` and then `plugin story bind`, then `plan`. Detail is in [story consult](v2/docs/story-consult.ja.md). The conversation is [#245](https://github.com/Takamasa045/tsugite/pull/245). The packaged catalog is [#246](https://github.com/Takamasa045/tsugite/pull/246).
 
 ## Copy a v1 production into v2
 
