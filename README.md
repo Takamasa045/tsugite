@@ -2,7 +2,7 @@
 
 [日本語](README.ja.md) | [English](README.md) | [中文](README.zh.md) | [한국어](README.ko.md)
 
-New videos start on **v2** (current package `2.0.0-alpha.7`, not the formal 2.0.0 release). A person reviews the plan before generation, and the fixes you keep carry into the next film. Existing `project.yaml` productions stay on **v1** (`0.18.0`), which remains in maintenance.
+New videos start on **v2** (current package `2.0.0-alpha.7`, not the formal 2.0.0 release). A person reviews the plan before generation, and the fixes you keep carry into the next film. Existing `project.yaml` productions stay on **v1** (`0.19.0`), which remains in maintenance.
 
 Earlier command lists are in the [technical reference](docs/reference.md).
 
@@ -99,7 +99,7 @@ ElevenLabs sound effects have one recorded paid acceptance. Paid acceptance for 
 
 ![Local launcher after setup, with the sample production はじめての継手 in the list](docs/guide/assets/launcher-my-first-tsugite.webp)
 
-Existing `project.yaml` productions finish on v1 `0.18.0`. Their command entry is `node bin/pipeline`. The list is the [technical reference](docs/reference.md#commands). Windows notes are in the [native Windows and PowerShell guide](docs/windows.md). The first-time setup request is [here](docs/onboarding/codex-setup-prompt.ja.md).
+Existing `project.yaml` productions finish on v1 `0.19.0`. Their command entry is `node bin/pipeline`. The list is the [technical reference](docs/reference.md#commands). Windows notes are in the [native Windows and PowerShell guide](docs/windows.md). The first-time setup request is [here](docs/onboarding/codex-setup-prompt.ja.md).
 
 On v1, a person stops the work three times. The only exception is a production that opts into `gates.gate_2.auto_pass: qc_ok_no_new_assets`. Footage check (Gate 2) may then pass without a person's OK only when credits, new assets, and QC issues are all 0.
 

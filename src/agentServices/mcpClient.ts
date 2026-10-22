@@ -321,7 +321,7 @@ export async function withRemoteMcpSession<T>(
   const transportFactory = options.transportFactory ?? defaultTransportFactory;
   const client = clientFactory({
     name: "tsugite-agent-service",
-    version: "0.18.0"
+    version: "0.19.0"
   });
   let transport: RemoteMcpTransportLike | undefined;
 

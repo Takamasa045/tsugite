@@ -1,12 +1,13 @@
 # Changelog
 
-## 2026-10-22 — Runtime compatibility and Desktop retirement
+## 0.19.0 - 2026-10-22
 
+- Release the repository source and agent-service client as 0.19.0 so GitHub Latest includes the Node compatibility and Desktop retirement changes. Independent v2 stays at its published 2.0.0-alpha.7; this is not formal v2 acceptance.
 - Support patched Node 22/24/26 in core runtime checks and CI; retain Node 22.23.4 as the default.
 - Remove the Electron Desktop source and embedded terminal. Browser launcher/Viewer remains available; user projects and installed app data are preserved.
 - Distribute the runtime policy in v2.0.0-alpha.7. Existing v1 projects remain supported.
 
-## Unreleased
+### Other source changes included
 
 - Stop auto-opening confirmation pages. v2 `plan` now prints the local URL and opens a browser only with `--open`; `--no-open` is accepted and ignored. v1 `review` / `viewer` still open only with `--open` and print the confirmation path so a person can open it before Gate approval.
 - Update video tooling to Remotion 4.0.536, HyperFrames 0.8.173, GSAP 3.15.0, PixVerse CLI 1.4.9, Kling CLI 0.2.3, MiniMax CLI 1.0.28, Editframe 0.60.34, Hypit 0.3.1 and Tesseract 0.4.0. Align v2 renderer peers and bind split HyperFrames runtime files to reviewed plans.
