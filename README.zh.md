@@ -4,7 +4,7 @@
 
 把计划、素材、完成视频的确认交给人，并把这一次改过的点接到下一支片子。Tsugite 是在自己电脑上跑的影像工房。
 
-新的片子从 v2（`2.0.0-alpha.5`，不是正式版 2.0.0）开始。已有的 `project.yaml` 留在 v1 **0.18.0** 维护。PixVerse、Kling、TopView 不把 API 密钥写进设置，而是在各自 CLI 已用订阅登录时使用。路径已在包内，真机确认仍未完成。正本是 [日本語 README](README.ja.md) 与 [English README](README.md)。以前 README 中的技术说明见 [docs/reference.ja.md](docs/reference.ja.md) 与 [docs/reference.md](docs/reference.md)。
+新的片子从 v2（`2.0.0-alpha.6`，不是正式版 2.0.0）开始。已有的 `project.yaml` 留在 v1 **0.18.0** 维护。PixVerse、Kling、TopView 不把 API 密钥写进设置，而是在各自 CLI 已用订阅登录时使用。路径已在包内，真机确认仍未完成。正本是 [日本語 README](README.ja.md) 与 [English README](README.md)。以前 README 中的技术说明见 [docs/reference.ja.md](docs/reference.ja.md) 与 [docs/reference.md](docs/reference.md)。
 
 ## 适合谁
 

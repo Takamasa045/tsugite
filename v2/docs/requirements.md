@@ -114,7 +114,7 @@ product roadmap or proof of paid integrations.
 
 ## Formal 2.0.0
 
-`v2/package.json` stays `2.0.0-alpha.5`. This section records the release
+`v2/package.json` is `2.0.0-alpha.6`. This section records the release
 judgment. It does not tag, publish a GitHub Release, or publish to npm.
 The same table is in the [Japanese decision record](migration-plan.ja.md) and
 the [English decision record](migration-plan.md).

@@ -1,8 +1,8 @@
 # GitHub Release 本文の下書き（日本語）
 
-このファイルは公開しない。タグも打たない。`v2/package.json` は `2.0.0-alpha.5` のまま。英語の下書きは [github-release.md](github-release.md)。
+タグ `v2.0.0-alpha.6` の日本語側です。公開用に日英を一つにした本文は [github-release-body.md](github-release-body.md)。この PR はタグを打たず、Release も npm も公開しません。英語の下書きは [github-release.md](github-release.md)。`v2/package.json` は `2.0.0-alpha.6` です。
 
-[v2.0.0-alpha.5](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.5) のあと、alpha に入った内容です。新しい動画は v2 から始めます。既存の `project.yaml` 案件は v1 `0.18.0` の保守として残します。
+直前の公開版は [v2.0.0-alpha.5](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.5) です。新しい動画は v2 から始めます。既存の `project.yaml` 案件は v1 `0.18.0` の保守として残します。正式版 2.0.0 ではありません。
 
 ## 入ったもの
 
@@ -28,9 +28,13 @@ npm run --silent v2 -- plugin story consult --request "60秒の静かな自然�
 
 採用した JSON は `plugin story check` のあと `plugin story bind` で結び、続けて `plan` する。
 
+### #248 — PixVerse、Kling、TopView のサブスク CLI
+
+[#248](https://github.com/Takamasa045/tsugite/pull/248) は、PixVerse・Kling・TopView を API キーではなく各社 CLI のログイン状態でつなぐ。PixVerse の既定は CLI で、`base_url` と `credential_env` を書いた HTTP は任意で残る。Kling に CLI 経路を足し、TopView は公式 skill の `video_gen.py` と `auth.py status` だけの labs プラグインである。テストは偽物の CLI だけである。実生成も課金もしていない。**サブスク CLI での実機確認は未了**である。各 CLI にサブスクリプションでログインした状態での実生成と、その生成から最終ファイルまでの通し書き出しは、このリリースではしていない。Tsugite 独自のログインコマンドは足さない。Kling と TopView は、PixVerse の実機確認の代わりにはしない。
+
 ## PixVerse、Kling、TopView のつなぎ方
 
-各サービスの CLI で、そのサブスクリプションにログインした状態で使う。経路はこのパッケージにあり、テストは偽物の CLI だけである。API キーを案件の設定に書いてつなぐ方式にはしない。この下書きはログイン先も課金先も選ばず、Tsugite 独自のログインコマンドも足さない。実機確認は未了。
+各サービスの CLI で、そのサブスクリプションにログインした状態で使う。経路はこのパッケージにあり、テストは偽物の CLI だけである。API キーを案件の設定に書いてつなぐ方式にはしない。このリリースはログイン先も課金先も選ばず、Tsugite 独自のログインコマンドも足さない。サブスク CLI での実機確認は未了。
 
 オフライン見本（`init`、`check`、`plan`、`make`、`export`）は、これらの CLI を呼ばない。
 

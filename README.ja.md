@@ -2,7 +2,7 @@
 
 [日本語](README.ja.md) | [English](README.md) | [中文](README.zh.md) | [한국어](README.ko.md)
 
-新しく始める動画は **v2**（いまの版は `2.0.0-alpha.5`。正式版 2.0.0 ではない）で作ります。計画を人が確認してから生成し、直した好みは次の1本へ残します。既存の `project.yaml` 案件は **v1**（`0.18.0`）の保守として続けます。
+新しく始める動画は **v2**（いまの版は `2.0.0-alpha.6`。正式版 2.0.0 ではない）で作ります。計画を人が確認してから生成し、直した好みは次の1本へ残します。既存の `project.yaml` 案件は **v1**（`0.18.0`）の保守として続けます。
 
 以前のコマンド一覧は [技術リファレンス](docs/reference.ja.md) にあります。
 
@@ -23,7 +23,7 @@ Codex か Claude Code に、自分の言葉で頼めます。
 3. 報告された確認ページの URL を自分で開き、承認は自分で押す。
 
 ```text
-このリポジトリの Tsugite v2（2.0.0-alpha.5）で、課金しない6秒サンプルを準備してください。
+このリポジトリの Tsugite v2（2.0.0-alpha.6）で、課金しない6秒サンプルを準備してください。
 公式リポジトリ：
 https://github.com/Takamasa045/tsugite
 AGENTS.md と v2/skills/tsugite/SKILL.md を読み、
@@ -107,7 +107,7 @@ v2 の確認は確認ページだけです。CLI に承認フラグはありま�
 
 ## もっと詳しく
 
-- 版：v2 は `2.0.0-alpha.5`。正式版 2.0.0 の条件は [移行判断](v2/docs/migration-plan.ja.md) と [要件](v2/docs/requirements.md) です。
+- 版：v2 は `2.0.0-alpha.6`。正式版 2.0.0 の条件は [移行判断](v2/docs/migration-plan.ja.md) と [要件](v2/docs/requirements.md) です。
 - v2 のコマンド詳細：[v2/README.ja.md](v2/README.ja.md) · [v2/README.md](v2/README.md)
 - 用途から選ぶ：[see-and-choose](docs/onboarding/see-and-choose.ja.md)
 - 変更履歴：[CHANGELOG.md](CHANGELOG.md) · [v2/CHANGELOG.md](v2/CHANGELOG.md)

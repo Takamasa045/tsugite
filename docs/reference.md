@@ -4,11 +4,11 @@ This page holds the previous README material. The non-engineer entry is [README.
 
 The heading map is in [readme-heading-map.md](guide/readme-heading-map.md).
 
-Public Desktop installers have ended. Everyday use is this GitHub repository plus Codex, Claude Code, or another local coding agent, with a loopback browser launcher. The repository source version is `0.18.0`; independent v2 is `2.0.0-alpha.5`.
+Public Desktop installers have ended. Everyday use is this GitHub repository plus Codex, Claude Code, or another local coding agent, with a loopback browser launcher. The repository source version is `0.18.0`; independent v2 is `2.0.0-alpha.6`.
 
 [日本語](../README.ja.md) | [English](../README.md) | [中文](../README.zh.md) | [한국어](../README.ko.md)
 
-**日本語で始める：** [最初に試す用途と公開デモ](onboarding/see-and-choose.ja.md) → [必要な準備・最初の一歩](../README.ja.md#はじめ方)。6秒サンプルは環境確認用です。公開済みalpha.5と手元のリポジトリの手順を分けて案内しています。
+**日本語で始める：** [最初に試す用途と公開デモ](onboarding/see-and-choose.ja.md) → [必要な準備・最初の一歩](../README.ja.md#はじめ方)。6秒サンプルは環境確認用です。公開済みalpha.6と手元のリポジトリの手順を分けて案内しています。
 
 English reference continues below. The published alpha.5 archive is a fixed release; later repository or private local changes are separate. The first-video guide distinguishes these installation paths.
 

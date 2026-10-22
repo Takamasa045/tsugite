@@ -1,13 +1,15 @@
 # Draft GitHub Release notes (English)
 
-Do not publish this file as a release. Do not tag. `v2/package.json` stays
-`2.0.0-alpha.5`. The Japanese draft is
-[github-release.ja.md](github-release.ja.md).
+English half of tag `v2.0.0-alpha.6`. The combined Japanese and English body
+is [github-release-body.md](github-release-body.md). This pull request does
+not push the tag, publish the Release, or publish to npm. The Japanese draft
+is [github-release.ja.md](github-release.ja.md). `v2/package.json` is
+`2.0.0-alpha.6`.
 
-These notes describe alpha work after the
-[v2.0.0-alpha.5](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.5)
-source release. New videos start on v2. Existing `project.yaml` productions
-stay on v1 `0.18.0`.
+The previous public prerelease is
+[v2.0.0-alpha.5](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.5).
+New videos start on v2. Existing `project.yaml` productions stay on v1
+`0.18.0`. This is not formal 2.0.0.
 
 ## What landed
 
@@ -52,13 +54,26 @@ npm run --silent v2 -- plugin story consult --request "60秒の静かな自然�
 After you keep a JSON plan, run `plugin story check` and then
 `plugin story bind`, then `plan`.
 
+### #248 — PixVerse, Kling, and TopView subscription CLIs
+
+[#248](https://github.com/Takamasa045/tsugite/pull/248) connects PixVerse,
+Kling, and TopView through each service's CLI while that subscription is
+already logged in, not through an API key in settings. PixVerse defaults to
+the CLI. HTTP with `base_url` and `credential_env` stays optional. Kling gains
+a CLI path. TopView is a labs plugin that calls only the official skill
+`video_gen.py` and `auth.py status`. Tests replace the CLI with a fake. No
+real generation and no charge were made. **The subscription-CLI real-machine
+check is not done.** A real generation and a full export of that generation,
+while each CLI is logged in, are not part of this release. This release adds
+no Tsugite login command. Kling and TopView do not replace the PixVerse check.
+
 ## How PixVerse, Kling, and TopView connect
 
 Use each service's CLI while that subscription is already logged in. The path
 is in this package and tests use a fake CLI. Do not connect them by writing an
-API key into project settings. This draft does not choose a login or a billing
-account, and it does not add a Tsugite login command. The real-machine check
-is open.
+API key into project settings. This release does not choose a login or a
+billing account, and it does not add a Tsugite login command. The
+subscription-CLI real-machine check is not done.
 
 The offline sample (`init`, `check`, `plan`, `make`, `export`) does not call
 those CLIs.

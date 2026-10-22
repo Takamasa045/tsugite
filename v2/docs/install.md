@@ -17,15 +17,15 @@ package does not change your system or buy/install a service automatically.
 
 ## Download and verify
 
-Open the [alpha.5 release](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.5)
-and download `tsugite-2.0.0-alpha.5.tgz` and `SHA256SUMS` into a new working folder.
+Open the [alpha.6 release](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.6)
+and download `tsugite-2.0.0-alpha.6.tgz` and `SHA256SUMS` into a new working folder.
 On macOS, run `shasum -a 256 -c SHA256SUMS` in that folder; on Linux,
 use `sha256sum -c SHA256SUMS`. On Windows, run
-`Get-FileHash .\tsugite-2.0.0-alpha.5.tgz -Algorithm SHA256` and compare it with the
+`Get-FileHash .\tsugite-2.0.0-alpha.6.tgz -Algorithm SHA256` and compare it with the
 line in `SHA256SUMS`. Stop if the digest does not match.
 
 ```sh
-npm install --prefix ./tsugite-local --ignore-scripts ./tsugite-2.0.0-alpha.5.tgz
+npm install --prefix ./tsugite-local --ignore-scripts ./tsugite-2.0.0-alpha.6.tgz
 node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs init ./my-video
 node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs check --project ./my-video
 node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs plan --project ./my-video

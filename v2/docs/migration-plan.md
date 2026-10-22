@@ -26,8 +26,8 @@ production counts the owner supplied separately.
 Current position (2026-10-22):
 
 - The production authority is **v1 0.18.0** (`project.yaml`). v1 stays in
-  maintenance. New-work guidance starts at v2. The version number is unchanged.
-- The independent trial distribution is **v2 2.0.0-alpha.5** (`tsugite.yaml`).
+  maintenance. New-work guidance starts at v2. The v1 version number is unchanged.
+- The independent trial distribution version is **v2 2.0.0-alpha.6** (`tsugite.yaml`). The previous public prerelease is v2.0.0-alpha.5.
   The formal 2.0.0 judgment at the end of this file is the one to use.
 - ElevenLabs SFX has one recorded paid acceptance (2 seconds). Speech and music
   are open.
@@ -137,8 +137,8 @@ experiments.
 
 ## Formal 2.0.0 (2026-10-22)
 
-`v2/package.json` stays `2.0.0-alpha.5`. This section records the judgment. It
-does not tag, publish a GitHub Release, or publish to npm.
+`v2/package.json` is `2.0.0-alpha.6`. This section records the judgment. It
+does not itself push a tag, publish a GitHub Release, or publish to npm.
 
 Do not call the package formal 2.0.0 until every row below is met.
 
