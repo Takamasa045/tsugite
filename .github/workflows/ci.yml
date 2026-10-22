@@ -1,5 +1,8 @@
 name: CI
 
+env:
+  NPM_CONFIG_AUDIT: 'false'
+
 # Push CI only on the default branch so feature-branch pushes do not double-run
 # with pull_request. Cancel superseded in-progress runs for the same PR or ref.
 on:
@@ -37,9 +40,12 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: '22.23.4'
           cache: npm
           cache-dependency-path: apps/download-site/package-lock.json
+      - name: Verify patched Node runtime
+        run: >-
+          node -e "console.log(JSON.stringify({version:process.version,execPath:process.execPath})); if (process.version !== 'v22.23.4') process.exit(1)"
       - run: npm --prefix apps/download-site ci
       - run: npm --prefix apps/download-site test
       - run: npm --prefix apps/download-site run lint
@@ -52,14 +58,18 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: '22.23.4'
           cache: npm
+      - name: Verify patched Node runtime
+        run: >-
+          node -e "console.log(JSON.stringify({version:process.version,execPath:process.execPath})); if (process.version !== 'v22.23.4') process.exit(1)"
       - name: Install media probe
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y ffmpeg
       - run: npm ci
       - run: npm --prefix apps/workflow-viewer ci
+      - run: node --test scripts/offline-audit.node.mjs
       - run: npm run check
       # Root check excludes apps/**; keep Viewer unit/coverage required on Ubuntu.
       - run: npm run viewer:check
@@ -79,8 +89,11 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: '22.23.4'
           cache: npm
+      - name: Verify patched Node runtime
+        run: >-
+          node -e "console.log(JSON.stringify({version:process.version,execPath:process.execPath})); if (process.version !== 'v22.23.4') process.exit(1)"
       - name: Install media probe
         shell: pwsh
         run: |

@@ -29,7 +29,7 @@
     "desktop:package": "npm --prefix apps/desktop run package",
     "desktop:make": "npm --prefix apps/desktop run make",
     "desktop:audit": "npm --prefix apps/desktop run package:audit",
-    "security:audit": "npm audit --omit=dev --audit-level=moderate && npm audit --audit-level=moderate",
+    "security:audit": "node scripts/offline-audit.mjs --omit=dev --audit-level=moderate && node scripts/offline-audit.mjs --audit-level=moderate",
     "vendor:check": "node scripts/check-vendor-boundary.mjs",
     "postinstall": "node backends/hyperframes/apply-pinned-patches.mjs",
     "check": "npm run vendor:check && npm run build && npm run test:coverage",
@@ -71,12 +71,12 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.7",
     "@typescript/native": "npm:typescript@^7.0.2",
-    "@vitest/coverage-v8": "^4.1.11",
+    "@vitest/coverage-v8": "^4.1.12",
     "gsap": "3.15.0",
     "hyperframes": "0.8.173",
     "tsx": "^4.23.15",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.12"
   },
   "overrides": {
     "@hono/node-server": "2.0.11",

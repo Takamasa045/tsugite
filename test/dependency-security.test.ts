@@ -66,7 +66,7 @@ describe("dependency security contracts", () => {
     expect(lockfile.packages["node_modules/sharp"].version).toBe("0.35.5");
     expect(lockfile.packages["node_modules/vite"].version).toBe("8.1.6");
     expect(manifest.scripts["security:audit"]).toBe(
-      "npm audit --omit=dev --audit-level=moderate && npm audit --audit-level=moderate"
+      "node scripts/offline-audit.mjs --omit=dev --audit-level=moderate && node scripts/offline-audit.mjs --audit-level=moderate"
     );
     const ci = YAML.parse(ciWorkflow) as Workflow;
     const desktop = YAML.parse(desktopWorkflow) as Workflow;
