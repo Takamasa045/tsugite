@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-10-22 — Runtime compatibility and Desktop retirement
+
+- Support patched Node 22/24/26 in core runtime checks and CI; retain Node 22.23.4 as the default.
+- Remove the Electron Desktop source and embedded terminal. Browser launcher/Viewer remains available; user projects and installed app data are preserved.
+- Distribute the runtime policy in v2.0.0-alpha.7. Existing v1 projects remain supported.
+
 ## Unreleased
 
 - Stop auto-opening confirmation pages. v2 `plan` now prints the local URL and opens a browser only with `--open`; `--no-open` is accepted and ignored. v1 `review` / `viewer` still open only with `--open` and print the confirmation path so a person can open it before Gate approval.

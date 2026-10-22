@@ -1,8 +1,15 @@
 # Changelog
 
-`v2/package.json` is `2.0.0-alpha.6`. The combined release body is
+`v2/package.json` is `2.0.0-alpha.7`. The combined release body is
 [docs/release-notes/github-release-body.md](docs/release-notes/github-release-body.md).
 This changelog does not push the tag or publish the Release.
+
+## 2.0.0-alpha.7 - 2026-10-22
+
+- Admit patched Node 22.23.4+, 24.22.1+ and 26.12.1+ in their respective major lines, using one shared runtime policy and a three-OS CI matrix. Keep Node 22.23.4 / npm 10.9.8 as the default until Node 26 LTS and provider acceptance.
+- Remove the repository's Electron Desktop app and embedded terminal; use the browser launcher/Viewer with Codex or Claude Code. Project folders, approvals and user data are unchanged.
+- Fix Viewer tests on Node 26 by using jsdom's browser storage instead of Node's process-global Web Storage. Optional Hypit setup still requires Node 22.
+- Preserve the alpha.6 service-acceptance limitations. No live service generation or billing is part of this runtime release.
 
 ## 2.0.0-alpha.6 - 2026-10-22
 

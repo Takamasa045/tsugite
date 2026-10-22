@@ -8,7 +8,7 @@ metadata:
 
 # Verify Tsugite
 
-This skill verifies exactly one primary surface: the public `node bin/pipeline` CLI. The loopback browser launcher, generated 3D Viewer, and development-only Electron shell are secondary surfaces and remain uncovered by this first slice.
+This skill verifies exactly one primary surface: the public `node bin/pipeline` CLI. The loopback browser launcher, generated 3D Viewer are secondary surfaces and remain uncovered by this first slice.
 
 ## Related verification entry
 
@@ -16,7 +16,7 @@ The [Cursor skill](../../../.cursor/skills/verify-tsugite-manual/SKILL.md) is na
 
 ## Launch
 
-Run from the Tsugite repository root. Required local tools are Node.js 22.12 or newer within the 22.x line, npm 10 or newer, `ffmpeg`, `ffprobe`, `/usr/bin/sandbox-exec`, and repository dependencies already present in `node_modules`.
+Run from the Tsugite repository root. Required local tools are a patched Node release admitted by package.json (default 22.23.4; 24/26 are compatibility candidates), npm 10 or newer, `ffmpeg`, `ffprobe`, `/usr/bin/sandbox-exec`, and repository dependencies already present in `node_modules`.
 
 The helper never installs dependencies. If `node_modules/tsx/package.json` is absent, stop. The repository's documented install command is `npm ci`, but it may contact the npm registry and is outside this verification run until dependency and network access are separately authorized.
 

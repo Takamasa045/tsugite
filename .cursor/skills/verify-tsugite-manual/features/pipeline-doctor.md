@@ -1,6 +1,6 @@
 # Pipeline doctor
 
-A user can ask Tsugite whether this machine (and, optionally, one project) is ready before any generation. `doctor` prints a machine-readable list of checks (Node 22.12+ in the 22.x line, npm 10+, ffprobe, ffmpeg, and with `--config` the project, selected backend file, and declared setup probes). It does not write Gate state, does not submit generation, and does not create a launcher shelf link.
+A user can ask Tsugite whether this machine (and, optionally, one project) is ready before any generation. `doctor` prints a machine-readable list of checks (Node 22.23.4+ in the 22.x line, npm 10+, ffprobe, ffmpeg, and with `--config` the project, selected backend file, and declared setup probes). It does not write Gate state, does not submit generation, and does not create a launcher shelf link.
 
 ## Sub-features
 
@@ -34,7 +34,7 @@ TSUGITE_PROJECTS_HOME="$TSUGITE_PROJECTS_HOME" node bin/pipeline doctor --config
 
 Observable result: exit 0, `checks` also include `project` (detail is the config path), `backend:remotion` (file `backends/remotion/render.mjs` exists), and `tool:remotion` (setup probe from `backends/remotion/capabilities.yaml`). No `credential:*` checks — this fixture has no generation adapter.
 
-- **Action.** User has a missing tool. Exact command is the same `doctor --json`. Observable result: exit 1, `"ok": false`, the missing check has `"status": "missing"`, `"blocking": true`, and a `remediation` string (ffmpeg text mentions install; Node mentions 22.12). Do not install providers to “make ok green” for this skill.
+- **Action.** User has a missing tool. Exact command is the same `doctor --json`. Observable result: exit 1, `"ok": false`, the missing check has `"status": "missing"`, `"blocking": true`, and a `remediation` string (ffmpeg text mentions install; Node mentions 22.23.4). Do not install providers to “make ok green” for this skill.
 
 ## Gotchas
 

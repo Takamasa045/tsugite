@@ -669,10 +669,13 @@ async function assertRepositoryIdentity() {
 }
 
 async function currentSourceIdentity() {
+  // Desktop icon removal alone produces a multi-MiB binary diff. Hash it in full;
+  // retain a finite bound and fail closed if Git output exceeds it.
+  const diffOptions = { cwd: REPO_ROOT, maxBuffer: 16 * 1024 * 1024 };
   const revisionResult = spawnSync("git", ["rev-parse", "HEAD"], { cwd: REPO_ROOT, encoding: "utf8" });
   const statusResult = spawnSync("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], { cwd: REPO_ROOT });
-  const diffResult = spawnSync("git", ["diff", "--binary", "--no-ext-diff", "--", "."], { cwd: REPO_ROOT });
-  const cachedDiffResult = spawnSync("git", ["diff", "--cached", "--binary", "--no-ext-diff", "--", "."], { cwd: REPO_ROOT });
+  const diffResult = spawnSync("git", ["diff", "--binary", "--no-ext-diff", "--", "."], diffOptions);
+  const cachedDiffResult = spawnSync("git", ["diff", "--cached", "--binary", "--no-ext-diff", "--", "."], diffOptions);
   if (revisionResult.status !== 0 || statusResult.status !== 0 || diffResult.status !== 0 || cachedDiffResult.status !== 0) {
     throw new Error("could not establish Git source identity");
   }

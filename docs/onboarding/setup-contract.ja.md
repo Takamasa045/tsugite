@@ -69,7 +69,7 @@ OS固有処理:
 ## 必須環境
 
 - Git。
-- Node.js 22.12以上、23未満。
+- Node.js 22.23.4以上、23未満。
 - npm 10以上。
 - FFmpegとffprobe。
 - 公式Tsugiteリポジトリ一式。

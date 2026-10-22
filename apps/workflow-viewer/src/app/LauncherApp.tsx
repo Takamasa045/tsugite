@@ -51,7 +51,6 @@ import {
   type TemplateWizardState,
 } from '../components/template/templateShelfModel'
 import { MaintenanceShelf } from '../components/maintenance/MaintenanceShelf'
-import { DesktopWorkspaceRecovery } from '../components/workspace/DesktopWorkspaceRecovery'
 
 export type { LauncherTemplate }
 
@@ -1733,7 +1732,6 @@ export function LauncherApp({
                 <FolderOpen aria-hidden="true" size={24} />
                 <strong>表示できる制作案件はまだありません。</strong>
                 <p>projectsフォルダにproject.yamlを用意すると、ここに表示されます。</p>
-                <DesktopWorkspaceRecovery />
               </div>
             ) : totalVisibleCount === 0 ? (
               <div className="launcher-empty"><strong>検索条件に合う制作案件はありません。</strong></div>

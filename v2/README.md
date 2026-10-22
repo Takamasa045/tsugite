@@ -28,11 +28,11 @@ The real-machine check and the broader v1 feature set are tracked in
 package is not published to the npm registry. Existing v1 productions continue unchanged.
 The repository entry for new work is the [root README](../README.md).
 
-Download the alpha tarball and SHA256SUMS from the [source-only alpha release](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.6). This release uploads no demo videos or images.
+Download the alpha tarball and SHA256SUMS from the [source-only alpha release](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.7). This release uploads no demo videos or images.
 Install without cloning or replacing your global tools:
 
 ```sh
-npm install --prefix ./tsugite-local --ignore-scripts ./tsugite-2.0.0-alpha.6.tgz
+npm install --prefix ./tsugite-local --ignore-scripts ./tsugite-2.0.0-alpha.7.tgz
 node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs init ./my-video
 node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs plan --project ./my-video
 ```
@@ -44,7 +44,7 @@ external acceptance.
 
 ## Try the offline sample
 
-Requires Node.js 22.12+ and FFmpeg/FFprobe with libx264 on PATH. From a checkout:
+Recommended: Node.js 22.23.4 (patched 24/26 are compatibility candidates) and FFmpeg/FFprobe with libx264 on PATH. From a checkout:
 
 ```sh
 npm --prefix /path/to/tsugite/v2 ci --ignore-scripts

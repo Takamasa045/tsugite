@@ -1,6 +1,6 @@
 {
   "name": "tsugite",
-  "version": "2.0.0-alpha.6",
+  "version": "2.0.0-alpha.7",
   "description": "Human-reviewed, budgeted video workflows — 継手",
   "type": "module",
   "license": "MIT",
@@ -21,7 +21,7 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=22.12"
+    "node": ">=22.23.4 <23 || >=24.22.1 <25 || >=26.12.1 <27"
   },
   "scripts": {
     "test": "node --test tests/*.node.mjs plugins/*/test.mjs",

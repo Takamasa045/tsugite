@@ -4,7 +4,7 @@ This page holds the previous README material. The non-engineer entry is [README.
 
 The heading map is in [readme-heading-map.md](guide/readme-heading-map.md).
 
-Public Desktop installers have ended. Everyday use is this GitHub repository plus Codex, Claude Code, or another local coding agent, with a loopback browser launcher. The repository source version is `0.18.0`; independent v2 is `2.0.0-alpha.6`.
+Public Desktop installers have ended. Everyday use is this GitHub repository plus Codex, Claude Code, or another local coding agent, with a loopback browser launcher. The repository source version is `0.18.0`; independent v2 is `2.0.0-alpha.7`.
 
 [日本語](../README.ja.md) | [English](../README.md) | [中文](../README.zh.md) | [한국어](../README.ko.md)
 
@@ -120,7 +120,7 @@ The 3D Viewer is a read-only snapshot of the current run. Details: [Local launch
 
 | Extra | Role | Docs |
 | --- | --- | --- |
-| Hypit production | Adapter-owned authoring path (`npm run hypit:install`). Not a pipeline render backend and not a substitute for Gate 1 / 3. Live `hypit build` / MP4 acceptance are not claimed by the source bump. Needs Node.js 22.15+ in the 22.x line for the Hypit runtime; core stays 22.12 | [Hypit](hypit.md) |
+| Hypit production | Adapter-owned authoring path (`npm run hypit:install`). Not a pipeline render backend and not a substitute for Gate 1 / 3. Live `hypit build` / MP4 acceptance are not claimed by the source bump. Needs Node.js 22.15+ in the 22.x line for the Hypit runtime; core recommends 22.23.4 | [Hypit](hypit.md) |
 | Editframe examples | Opt-in pinned gallery of 27 official samples: `npm run editframe:examples:install` then `npm run editframe:examples` | [Editframe examples](editframe-examples.md) |
 | Agent Services | Separate registry for public read-only Remote MCP (`services` / `service-tools` / `service-call`). Isolated from generation `connections` | [Agent Services](agent-services.md) |
 | Shitate import | Copy a SHA-256-locked character snapshot from a separate Shitate repo. Not required for normal use | [Shitate](shitate.md) |
@@ -191,7 +191,7 @@ The root `SKILL.md` is a legacy compatibility entry.
 
 ## Local launcher and 3D viewer
 
-Open the Tsugite repository in Codex or Claude Code, then use the loopback browser launcher beside it. Electron remains for development and regression tests only; see [Desktop](desktop.md).
+Open the Tsugite repository in Codex or Claude Code, then use the loopback browser launcher beside it. Electron source and embedded terminals have been removed; see [Desktop retirement](desktop.md).
 
 ```sh
 npm --prefix apps/workflow-viewer ci  # first time only
@@ -215,7 +215,7 @@ JSON contract, controls, and limits: [`apps/workflow-viewer/README.md`](../apps/
 
 ## Detailed setup and OS notes
 
-Prerequisites: Git, Node.js 22.12 or newer in the 22.x LTS line, npm 10 or newer, and FFmpeg including `ffprobe`. Optional Hypit production additionally requires Node.js 22.15 or newer in the 22.x line.
+Prerequisites: Git, Node.js 22.23.4 or newer in the 22.x LTS line, npm 10 or newer, and FFmpeg including `ffprobe`. Optional Hypit production is validated separately; 22.23.4 satisfies its Node 22 minimum. See [runtime policy](node-runtime.md) before using 24/26.
 
 ```sh
 # macOS
@@ -465,4 +465,4 @@ Every promotion requires human approval and should leave either a reproducing fi
 - `npm run check` enforces the vendor boundary, TypeScript build, the full test suite, and minimum coverage of 80% statements, functions, and lines, plus 74.4% branches for `src/` (held after Production Orchestration; restoring 75% remains debt). Coverage uses at most four Vitest workers so process-heavy fixtures remain stable on high-core machines and CI runners.
 - `npm run security:audit` checks both the production dependency tree and the full development tree, failing on moderate-or-higher advisories.
 - Vite may warn because this workspace path contains `*`. Tests currently pass in this path; move the repo to a path without `*` if that warning becomes operationally noisy.
-- 1.0 still requires live provider/billing evidence and packaged Desktop UAT. Windows smoke is verified on GitHub Actions. Desktop installers stay outside this source release.
+- 1.0 still requires live provider/billing evidence. Windows smoke is verified on GitHub Actions. Desktop installers stay outside this source release.

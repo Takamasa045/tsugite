@@ -2,7 +2,7 @@
 
 [日本語](README.ja.md) | [English](README.md) | [中文](README.zh.md) | [한국어](README.ko.md)
 
-New videos start on **v2** (current package `2.0.0-alpha.6`, not the formal 2.0.0 release). A person reviews the plan before generation, and the fixes you keep carry into the next film. Existing `project.yaml` productions stay on **v1** (`0.18.0`), which remains in maintenance.
+New videos start on **v2** (current package `2.0.0-alpha.7`, not the formal 2.0.0 release). A person reviews the plan before generation, and the fixes you keep carry into the next film. Existing `project.yaml` productions stay on **v1** (`0.18.0`), which remains in maintenance.
 
 Earlier command lists are in the [technical reference](docs/reference.md).
 
@@ -23,7 +23,7 @@ You do not have to type the commands yourself.
 3. Open the confirmation URL from the report yourself, and press approval yourself.
 
 ```text
-Prepare a zero-credit six-second sample with Tsugite v2 (2.0.0-alpha.6) in this repository.
+Prepare a zero-credit six-second sample with Tsugite v2 (2.0.0-alpha.7) in this repository.
 Official repository:
 https://github.com/Takamasa045/tsugite
 Read AGENTS.md and v2/skills/tsugite/SKILL.md.
@@ -34,7 +34,7 @@ Run make and export only after I have approved.
 Do not set API keys, spend credits, change an existing project.yaml, commit, or push.
 ```
 
-You need Node.js 22.12 or newer on the 22.x line, npm 10 or newer, and FFmpeg with `ffprobe` and `libx264`. The longer walkthrough is the [six-second environment check](docs/onboarding/first-video.ja.md).
+You need Node.js 22.23.4 or newer on the 22.x line, npm 10 or newer, and FFmpeg with `ffprobe` and `libx264`. For 24/26 compatibility candidates, see the [runtime policy](docs/node-runtime.md). The longer walkthrough is the [six-second environment check](docs/onboarding/first-video.ja.md).
 
 ## Quick start
 
@@ -107,7 +107,7 @@ v2 checks happen only on the confirmation page. There is no CLI approval flag.
 
 ## Learn more
 
-- Versions: v2 is `2.0.0-alpha.6`. Formal 2.0.0 criteria are in the [migration decision](v2/docs/migration-plan.ja.md) and the [requirements](v2/docs/requirements.md).
+- Versions: v2 is `2.0.0-alpha.7`. Formal 2.0.0 criteria are in the [migration decision](v2/docs/migration-plan.ja.md) and the [requirements](v2/docs/requirements.md).
 - v2 command detail: [v2/README.md](v2/README.md) · [v2/README.ja.md](v2/README.ja.md)
 - Pick a use: [see-and-choose](docs/onboarding/see-and-choose.ja.md)
 - History: [CHANGELOG.md](CHANGELOG.md) · [v2/CHANGELOG.md](v2/CHANGELOG.md)

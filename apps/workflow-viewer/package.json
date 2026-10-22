@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22.12 <23",
+    "node": ">=22.23.4 <23 || >=24.22.1 <25 || >=26.12.1 <27",
     "npm": ">=10"
   },
   "scripts": {
@@ -20,8 +20,6 @@
   "dependencies": {
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.6.1",
-    "@xterm/addon-fit": "^0.11.0",
-    "@xterm/xterm": "^6.0.0",
     "lucide-react": "^1.24.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",

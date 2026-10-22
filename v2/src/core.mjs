@@ -1,3 +1,4 @@
+import { isSupportedNodeVersion } from './node-runtime.mjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -269,7 +270,7 @@ export async function init(destination) {
 export async function environment(root) {
   const checks = {};
   for (const program of ['ffmpeg','ffprobe']) { try { await command(program, ['-version']); checks[program] = 'ready'; } catch { checks[program] = 'missing'; } }
-  checks.node = Number(process.versions.node.split('.')[0]) >= 22 ? 'ready' : 'unsupported';
+  checks.node = isSupportedNodeVersion(process.versions.node) ? 'ready' : 'unsupported';
   if (root) { try { await buildPlan(root); checks.project = 'ready'; } catch (e) { checks.project = e.message; } }
   return { ok: Object.values(checks).every(x => x === 'ready'), checks };
 }

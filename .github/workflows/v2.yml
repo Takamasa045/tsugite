@@ -4,18 +4,20 @@ env:
   NPM_CONFIG_AUDIT: 'false'
 on:
   pull_request:
-    paths: ['v2/**', '.github/workflows/v2.yml']
+    paths: ['v2/**', '.github/workflows/v2.yml', '.nvmrc', 'package.json']
   push:
     branches: [main]
-    paths: ['v2/**', '.github/workflows/v2.yml']
+    paths: ['v2/**', '.github/workflows/v2.yml', '.nvmrc', 'package.json']
 permissions:
   contents: read
 jobs:
   offline:
+    name: ${{ matrix.node == '22.23.4' && format('offline ({0})', matrix.os) || format('offline ({0}, Node {1})', matrix.os, matrix.node) }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        node: ['22.23.4', '24.22.1', '26.12.1']
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     defaults:
@@ -27,12 +29,13 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
-          node-version: '22.23.4'
+          node-version: ${{ matrix.node }}
           cache: npm
           cache-dependency-path: v2/package-lock.json
+      - run: npm install --global npm@10.9.8 --no-audit --no-fund
       - name: Verify patched Node runtime
         run: >-
-          node -e "console.log(JSON.stringify({version:process.version,execPath:process.execPath})); if (process.version !== 'v22.23.4') process.exit(1)"
+          node -e "console.log(JSON.stringify({version:process.version,execPath:process.execPath})); if (process.version !== 'v${{ matrix.node }}') process.exit(1)"
       - name: FFmpeg (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
@@ -79,16 +82,22 @@ jobs:
       - run: npm run test:extended
       - run: npm pack --dry-run
   remotion-smoke:
+    name: ${{ matrix.node == '22.23.4' && 'remotion-smoke' || format('remotion-smoke-node-{0}', matrix.node) }}
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22.23.4', '24.22.1', '26.12.1']
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: '22.23.4'
+          node-version: ${{ matrix.node }}
+      - run: npm install --global npm@10.9.8 --no-audit --no-fund
       - name: Verify patched Node runtime
         run: >-
-          node -e "console.log(JSON.stringify({version:process.version,execPath:process.execPath})); if (process.version !== 'v22.23.4') process.exit(1)"
+          node -e "console.log(JSON.stringify({version:process.version,execPath:process.execPath})); if (process.version !== 'v${{ matrix.node }}') process.exit(1)"
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       - run: npm --prefix v2 ci --ignore-scripts
       - run: npm --prefix v2/plugins/remotion install --ignore-scripts
