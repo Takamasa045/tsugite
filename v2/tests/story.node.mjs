@@ -211,19 +211,21 @@ test('the worked example and request guide stay machine-checkable', async t => {
   assert.equal(checked.generated, false);
   const doc = await fs.readFile(fileURLToPath(new URL('../docs/story-consult.ja.md', import.meta.url)), 'utf8');
   for (const marker of ['初稿', '診断', '改稿', 'ショット対応', 'intentionally', '60秒の静かな自然映像', '曲はまだ聴いていない', '民話', '採用した構成メモ', 'NOTICE.md', '同梱']) assert.match(doc, new RegExp(marker));
-  const skill = await fs.readFile(fileURLToPath(new URL('../skills/tsugite/SKILL.md', import.meta.url)), 'utf8');
-  assert.match(skill.replaceAll('\n', ' '), /catalog shipped in this package/);
-  assert.match(skill.replaceAll('\n', ' '), /does not search a parent repository/);
+  const skill = (await fs.readFile(fileURLToPath(new URL('../skills/tsugite/SKILL.md', import.meta.url)), 'utf8')).replaceAll('\r\n', '\n').replaceAll('\n', ' ');
+  assert.match(skill, /catalog shipped in this package/);
+  assert.match(skill, /does not search a parent repository/);
 });
 
 test('the shipped story catalog matches the repository catalog and carries license and sources', async () => {
   const canonical = await fs.readFile(storyCatalogPaths.canonical);
   const bundled = await fs.readFile(storyCatalogPaths.bundled);
   assert.deepEqual(bundled, canonical);
-  const license = await fs.readFile(storyCatalogPaths.license, 'utf8');
-  const notice = await fs.readFile(storyCatalogPaths.notice, 'utf8');
-  assert.equal(notice, storyCatalogNotice(canonical.toString('utf8'), license));
-  const catalog = parse(canonical.toString('utf8'));
+  const normalize = value => value.replaceAll('\r\n', '\n');
+  const canonicalText = normalize(canonical.toString('utf8'));
+  const license = normalize(await fs.readFile(storyCatalogPaths.license, 'utf8'));
+  const notice = normalize(await fs.readFile(storyCatalogPaths.notice, 'utf8'));
+  assert.equal(notice, storyCatalogNotice(canonicalText, license));
+  const catalog = parse(canonicalText);
   for (const source of catalog.sources) {
     assert.match(notice, new RegExp(source.url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     assert.ok(notice.includes(source.title));
