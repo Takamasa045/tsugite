@@ -1,0 +1,10 @@
+{
+  "id": "topview",
+  "kind": "video",
+  "durations": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+  "reference": "https://github.com/topviewai/skill",
+  "apiVersion": 1,
+  "liveEnabled": true,
+  "creditPolicy": "explicit per-service maximum; subscription charges stay unknown unless the CLI reports a number",
+  "verification": "official skill CLI argument mapping; fake CLI only; live paid acceptance not performed"
+}

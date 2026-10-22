@@ -19,8 +19,14 @@ are not submitted. Extend results that include the source are trimmed to the
 requested tail. Images over 20 MB
 and videos over 32 MB fail at planning. Video-reference Fusion, masks, motion
 control, templates, voice and PixVerse music are unimplemented. Verify actual
-charges before paid use. Live mode requires an explicitly enabled private connection, a service
-budget, and a page-approved plan. Keys are read lazily from the chosen
+charges before paid use. The default live connection is the subscription CLI (`pixverse`, or
+`PIXVERSE_CLI`). Login is `pixverse auth status --json` before `create`. A
+missing CLI or a failed login stops before generation. The CLI quote is an
+explicit positive `max_credits`; it does not use the V6 rate table. A missing
+or null credit number leaves the reservation uncertain. Login balance is not a
+charge. HTTP remains available when `base_url` and `credential_env` are set.
+Live mode requires an explicitly enabled private connection, a service
+budget, and a page-approved plan. HTTP keys are read lazily from the chosen
 environment reference, never written to the project. Credentials never belong in
 source options.
 

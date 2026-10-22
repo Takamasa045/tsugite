@@ -1,0 +1,22 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import mock from './mock.mjs';
+import live, {request, normalize, reconcile} from './index.mjs';
+import {buildTopviewCliArgs, loginInvocation} from './cli.mjs';
+const task = {prompt: 'synthetic contract fixture', seconds: 5, kind: 'video', options: {model: 'Standard'}};
+test('mock quote and fail-closed live entry', async () => {assert.equal(mock.quote(task).credits, 0);await assert.rejects(live.make(), /disabled/);});
+test('unknown receipts never imply refunds', () => {assert.equal(reconcile({provider_job_id: 'fixture', status: 'failed'}).releaseReservation, false);assert.equal(reconcile({provider_job_id: 'fixture', status: 'failed', credits_charged: 0}).releaseReservation, true);});
+test('text and image arguments stay on the skill CLI', () => {
+  assert.equal(normalize(task, {format: '9:16'}).options.aspect, '9:16');
+  assert.throws(() => request({...task, options: {}}), /Choose a TopView model/);
+  assert.throws(() => live.quote(task), /explicit positive/);
+  assert.equal(live.quote({...task, options: {...task.options, max_credits: 8}}).credits, 8);
+  const text = buildTopviewCliArgs(normalize(task), [], '/tmp/out');
+  assert.equal(text[0], 'run');
+  assert.deepEqual(text.slice(1, 5), ['--type', 't2v', '--model', 'Standard']);
+  assert.ok(text.includes('--json') && text.includes('--quiet'));
+  const image = buildTopviewCliArgs({...task, options: {...task.options, mode: 'image', sound: true}}, ['/tmp/frame.png'], '/tmp/out');
+  assert.ok(image.includes('i2v') && image.includes('--first-frame') && image.includes('--sound') && image.includes('on'));
+  assert.deepEqual(loginInvocation(['python3', '/skills/video_gen.py']), {command: ['python3', '/skills/auth.py'], args: ['status']});
+  assert.deepEqual(loginInvocation(['node', 'fake.mjs']), {command: ['node', 'fake.mjs'], args: ['auth', 'status', '--json']});
+});
