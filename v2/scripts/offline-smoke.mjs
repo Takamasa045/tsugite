@@ -17,6 +17,8 @@ process.env.TSUGITE_HOME=path.join(directory,'home');
 const run=async args=>{const result=await exec(process.execPath,[cli,...args],{cwd:directory,env:{...process.env,TSUGITE_HOME:path.join(directory,'home')},timeout:120000});const output=JSON.parse(result.stdout);steps.push({command:['tsugite',...args],output});return output;};
 let page;
 try {
+  const consulted = await run(['plugin','story','consult','--request','60秒の静かな自然映像。ドラマ・CTA不要','--seconds','60']);
+  if (consulted.result.generated !== false || consulted.result.approval !== 'not-requested' || consulted.result.recommendation.primary.id !== 'jo-ha-kyu') throw new Error('story consult must stay advisory');
   await run(['init','my-video','--json']);
   await run(['check','--project',project,'--json']);
   await run(['plan','--project',project,'--no-review','--json']);

@@ -118,7 +118,7 @@ npm run --silent v2 -- plan --project ./projects/my-first-v2-video
 | --- | --- | --- |
 | PixVerse / Kling CLI adapter | パイプライン経由の T2V / I2V | [Optional Adapters](optional-adapters.md) |
 | Prompt catalog | PixVerse / Kling / Seedance の出典付き助言。カタログの存在は実行能力ではなく、prompt も自動変更しない | [モデル別プロンプト知識](prompt-guides.md) |
-| Story guides | 34種の物語構成と、35種の映像文法・AI動画原則を理由付きで選ぶ | [王道の物語構成・映像文法](story-guides.md) |
+| Story guides | 34種の物語構成と、36種の映像文法・AI動画原則を理由付きで選ぶ | [王道の物語構成・映像文法](story-guides.md) |
 | TopView skill CLI | T2V と単一画像 I2V | [TopView CLI](topview-cli.md) |
 | H3 Prompt Director | MiniMax H3（`minimax-h3`）向け Creative IR → 決定的な英語プロンプト | [H3 Prompt Director](h3-prompt-director.md) |
 
