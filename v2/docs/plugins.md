@@ -66,7 +66,7 @@ not require an "official" namespace or vendor endorsement. Real-render evidence
 and passing mock tests are required before expanding the default installed set.
 The local renderer and optional Remotion renderer have v2 real-render evidence
 on this Mac. HyperFrames also has real local audio/caption export evidence. Service sources
-have synthetic HTTP protocol tests with paid acceptance still unverified. They
+have synthetic HTTP protocol tests. ElevenLabs SFX has one recorded paid acceptance. PixVerse, Kling, and TopView real-machine checks use a logged-in subscription CLI, not an API key in settings, and are still open. They
 are not defaults. Use `execution: mock` explicitly for synthetic
 service footage/audio; the page labels it.
 

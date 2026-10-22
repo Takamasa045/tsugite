@@ -2,147 +2,113 @@
 
 [日本語](README.ja.md) | [English](README.md) | [中文](README.zh.md) | [한국어](README.ko.md)
 
-AIエージェントに頼むだけで、動画の「計画 → 素材 → 完成」を一緒に確認しながら進め、直したポイントを次の1本へ引き継げる、手元のPCで動く動画制作の工房です。
+新しく始める動画は **v2**（いまの版は `2.0.0-alpha.5`。正式版 2.0.0 ではない）で作ります。計画を人が確認してから生成し、直した好みは次の1本へ残します。既存の `project.yaml` 案件は **v1**（`0.18.0`）の保守として続けます。
 
-コマンドや開発者向けの以前の説明は [docs/reference.ja.md](docs/reference.ja.md) にあります。
+以前のコマンド一覧は [技術リファレンス](docs/reference.ja.md) にあります。
 
 ## こんな人に
 
-次のようなときに使います。
-
 - 同じ指示を、毎回いちから出し直したくない。
 - 生成サービスの課金は、内容を確認してからにしたい。
-- 前に直したところ（冒頭の長さ、字幕の量など）を次の1本で繰り返したくない。
+- 前に直したところを、次の1本でも残したい。
 
-Codex か Claude Code に日本語で頼んで、自分で動画を作る人向けです。Git やターミナルの操作を自分で覚える必要はありません。
+Codex か Claude Code に、自分の言葉で頼めます。
 
 ## はじめ方
 
-コマンドを自分で入力する必要はありません。
+コマンドを自分で打たなくても始められます。
 
-1. Codex か Claude Code で、空のフォルダを開く。
-2. 下の依頼文をそのまま貼る。
-3. 報告を読み、必要なときだけ「OK」する。
+1. このリポジトリを手元に置く。
+2. 下の依頼文をエージェントに貼る。
+3. 報告された確認ページの URL を自分で開き、承認は自分で押す。
 
 ```text
-このフォルダ内に、公式のTsugiteを安全にセットアップしてください。
-
+このリポジトリの Tsugite v2（2.0.0-alpha.5）で、課金しない6秒サンプルを準備してください。
 公式リポジトリ：
 https://github.com/Takamasa045/tsugite
-
-最初にOS、作業フォルダ、Git、Node.js、npm、FFmpeg、
-ffprobeの状態を読み取り専用で確認してください。
-
-不足しているシステムソフトがある場合は、
-勝手にインストールせず、必要な理由、実行するコマンド、
-変更される範囲を説明して、私の承認を待ってください。
-
-作業フォルダが空でない場合や、同名のファイル・フォルダがある場合は、
-上書きせず停止して状況を報告してください。
-
-既存ファイルの上書き、削除、グローバルインストール、
-外部サービスへのログイン、APIキー設定、課金を伴う生成、
-run、render、Gate承認、commit、pushは行わないでください。
-
-クローン後は、利用中のツールに対応するAGENTS.mdまたはCLAUDE.mdと、
-Tsugite Skillの正本（.agents/skills/tsugite/SKILL.md）を読み、
-docs/onboarding/setup-contract.ja.mdの安全境界を守って、
-公式Bootstrapのsetup:checkを実行してください。
-必須環境が揃っている場合だけsetupを使い、依存関係、Viewer、
-課金不要のサンプル案件、doctor、validate、planまで準備してください。
-
-最後に、継手の保存場所、成功した項目、不足している項目、
-実行していない課金・認証操作、次に私ができることを日本語で報告してください。
-報告の最後に「ランチャーを開きますか？」と一つだけ聞いてください。
-「はい」と答えられたときだけ setup:open を実行してください。
-答えがない場合や「いいえ」の場合は、ランチャーを開かないでください。
+AGENTS.md と v2/skills/tsugite/SKILL.md を読み、
+npm --prefix v2 ci --ignore-scripts のあと、
+npm run --silent v2 -- init、check、plan まで進めてください。
+確認ページの URL を教えてください。承認ボタンは私が押します。
+承認を確認できたときだけ make と export に進めてください。
+APIキーの設定、課金、既存の project.yaml の変更、commit、push はしないでください。
 ```
 
-同じ依頼文の正本は [Codex・Claude Codeなどで使う Tsugiteセットアップ依頼文](docs/onboarding/codex-setup-prompt.ja.md) です。
-
-## 終わったら見えるもの
-
-![セットアップ後のローカルランチャー。制作一覧にサンプル「はじめての継手」が見える](docs/guide/assets/launcher-my-first-tsugite.webp)
-
-公式のセットアップは、課金不要のサンプル制作案件「はじめての継手」を `projects/my-first-tsugite/` に置き、環境確認（`doctor`）、内容の検証（`validate`）、計画作り（`plan`）まで進めます。この時点では課金・ログイン・生成は一切していません。ランチャーも、報告の最後で「はい」と答えるまで開きません。
-
-「ランチャーを開きますか？」に「はい」と答えると、既存の `setup:open` で制作案件の一覧が開きます。開くだけでは生成も書き出しも、確認待ちの変更もしません。
+必要なソフトは Node.js 22.12以上の22.x、npm 10以上、FFmpeg（`ffprobe` と `libx264`）です。手順の詳細は [6秒で環境確認](docs/onboarding/first-video.ja.md) です。
 
 ## クイックスタート
 
-安定版の **v1**（`0.18.0`）です。すでにリポジトリがあり、コマンドを自分で打つ場合は、見本の制作案件で「内容の検証（`validate`）→ 計画作り（`plan`）→ 確認画面（`review` の HTML）」までを手元で確かめます。課金・外部サービス・書き出し（`render`）は使いません。確認画面は自動では開きません。
+リポジトリのルートで実行します。見本は課金も外部サービスも使いません。`plan` は確認ページの URL を出し、そのプロセスは開いたままにします。ブラウザは `--open` を付けたときだけ開きます。v2 は `TSUGITE_PROJECTS_HOME` を読みません。見本フォルダ `./my-video` は新しく作り、既存の `projects/` には書きません。
 
 macOS / Linux:
 
 ```sh
-npm ci
-export TSUGITE_PROJECTS_HOME=/tmp/tsugite-quickstart
-mkdir -p "$TSUGITE_PROJECTS_HOME"
-cp -R examples/storyboard-local "$TSUGITE_PROJECTS_HOME/storyboard-local"
-node bin/pipeline validate --config "$TSUGITE_PROJECTS_HOME/storyboard-local/project.yaml"
-node bin/pipeline plan --config "$TSUGITE_PROJECTS_HOME/storyboard-local/project.yaml"
-node bin/pipeline review --config "$TSUGITE_PROJECTS_HOME/storyboard-local/project.yaml"
+npm --prefix v2 ci --ignore-scripts
+npm run --silent v2 -- init ./my-video
+npm run --silent v2 -- check --project ./my-video
+npm run --silent v2 -- plan --project ./my-video
 ```
 
-Windows の PowerShell:
+Windows の PowerShell でも、同じ4行です。
 
 ```powershell
-npm ci
-$env:TSUGITE_PROJECTS_HOME = "$env:TEMP\tsugite-quickstart"
-New-Item -ItemType Directory -Force -Path $env:TSUGITE_PROJECTS_HOME | Out-Null
-Copy-Item -Recurse examples/storyboard-local "$env:TSUGITE_PROJECTS_HOME\storyboard-local"
-node bin/pipeline validate --config "$env:TSUGITE_PROJECTS_HOME\storyboard-local\project.yaml"
-node bin/pipeline plan --config "$env:TSUGITE_PROJECTS_HOME\storyboard-local\project.yaml"
-node bin/pipeline review --config "$env:TSUGITE_PROJECTS_HOME\storyboard-local\project.yaml"
+npm --prefix v2 ci --ignore-scripts
+npm run --silent v2 -- init ./my-video
+npm run --silent v2 -- check --project ./my-video
+npm run --silent v2 -- plan --project ./my-video
 ```
 
-最後のコマンドは `確認画面: …（開くには --open）` とパスを出します。そのパスを自分で開いてください。ブラウザを自動で開くときだけ `--open` を付けます。`TSUGITE_PROJECTS_HOME` を使うと、本物の制作案件を置く `projects/` には書き込みません。
+計画を承認したあと、別のターミナルで書き出します。PowerShell でも同じです。
 
-必要なソフトは Node.js 22.12以上の22.x、npm 10以上、FFmpeg（`ffprobe`を含む）です。v1の詳しいコマンドは [技術リファレンス](docs/reference.ja.md#コマンド) です。Windowsの注意は [Windowsネイティブ利用ガイド](docs/windows.md) です。v2 は alpha です。試す場合は [v2/README](v2/README.md) を見てください。
+```sh
+npm run --silent v2 -- make --project ./my-video
+npm run --silent v2 -- export --project ./my-video
+```
 
-## こんな頼み方ができます
+完成ファイルは `my-video/out/final.mp4` です。見本は新しい素材を作らないため、クリップ確認を自動で通します。生成をする案件は、確認ページでクリップを承認してから `export` します。`npx tsugite` ではこの alpha を取れません。
 
-短い例です。全部は [頼み方カタログ](docs/guide/requests.ja.md) にあります。
+## 物語の相談から始める
 
-- 30秒の縦型SNS広告の**構成案**だけ欲しい（生成はしない）。
-- 手元のセミナー動画を外部に送らず、章分けと要約が欲しい。
-- 同じキャラで紹介動画を作りたい。見た目と声を先に文章で確認する。
-- 前回直した「冒頭0.5秒でBGM」を次も守りたい。
-- Premiere Pro で開いて、カットだけ直したい（macOS）。
+素材や生成の前に、構成だけ先に決められます。相談は画像も確認ページも要らず、生成・外部送信・課金・承認をしません。採用した構成を案件へ結んでから、上の `plan` で確認ページを開きます。構成を変えると古い承認では先へ進めません。変わった箇所は再確認の対象になります。素材は自動では作り直しません。
 
-## 勝手に進まないしくみ
+同じコマンドが、このリポジトリでも npm の配布物から入れた v2 でも動きます。相談が読むのはパッケージ内の `knowledge/story-frameworks/catalog.yaml` だけです。出典は同じ場所の `NOTICE.md` です。親ディレクトリは探しません。カタログはデータであり、その型を生成できるという意味ではありません。
 
-進む前に、人が3回止められます。OKするまで次へ進みません。生成も書き出しも同じです。唯一の例外は、案件が `gates.gate_2.auto_pass: qc_ok_no_new_assets` を選んだときです。課金・新しい素材・品質の指摘がすべて0なら、素材の確認（Gate 2）は人のOKなしで通ります。課金や新しい素材が出るときは必ず止まります。
+```sh
+npm run --silent v2 -- plugin story consult --request "60秒の静かな自然映像。ドラマ・CTA不要" --seconds 60
+```
 
-1. **計画の確認（Gate 1）** — この計画で進めてよいか。ランチャーでは「Gate 1 確認画面を開く」と出ます。
-2. **素材の確認（Gate 2）** — できた素材でよいか。
-3. **完成の確認（Gate 3）** — この完成動画でよいか。
+PowerShell でも同じ1行です。採用した JSON は `plugin story check` のあと `plugin story bind` で結び、続けて `plan` します。詳細は [物語・構成の相談](v2/docs/story-consult.ja.md) です。相談の実装は [#245](https://github.com/Takamasa045/tsugite/pull/245)、カタログの同梱は [#246](https://github.com/Takamasa045/tsugite/pull/246) です。
 
-公式セットアップは、不足ソフトの導入、ログイン、APIキー、課金、`run`、`render`、Gate の判断、commit、push を自動では行いません。詳しい境界は [初回セットアップ契約](docs/onboarding/setup-contract.ja.md) です。
+## v1 の案件を v2 へ写す
 
-## 使うほど「自分の工房」になる
+元の `project.yaml` 案件は残ります。承認も秘密情報も写しません。対応するローカルのカット、音、普通の字幕だけを新しいフォルダへコピーします。
 
-1本目で「冒頭が長い」と直したことは、好み・学びとして記録できます。同じ指摘が続くと学習中になり、承認したものだけテンプレやルールへ反映する候補になります。
+```sh
+npm run --silent v2 -- init ./my-video --from-v1 /path/to/v1-project
+```
 
-承認は反映作業の許可です。prompt・テンプレ・ルールを自動では書き換えません。状態は記録（observed）→ 学習中（recurring）→ 反映済み（promoted）→ 効果確認済み（verified）です。
+PowerShell でも同じ1行です。パスは自分の案件に置き換えてください。案件専用の Remotion 構成やキャラクターの編集グラフは移せません。完成動画だけ写すときは `--flatten out/final.mp4`、元データの保管を足すときは `--archive-v1` を、同じ `init` に付けます。どちらも `--from-v1` が必要です。写したあとは、新しい計画を確認ページで承認します。
 
-## よく出てくる言葉
+## 生成サービスへのつなぎ方
 
-全部は [用語集](docs/guide/glossary.ja.md) です。初出は「平易な言い方（正式名）」です。
+PixVerse、Kling、TopView は、API キーを設定に書く方式ではつなぎません。各サービスの CLI で、そのサブスクリプションにログインした状態で使います。v2 は確認ページの承認後にその CLI を呼びます。実機確認は未了です。ログイン先や課金先は、この手順では選びません。上のクイックスタートは、これらの CLI を呼びません。
 
-| 画面や会話で見る言葉 | 意味 |
-| --- | --- |
-| 制作案件（`project.yaml`） | 1本の動画のフォルダと設定 |
-| 計画の確認（Gate 1） / 素材の確認（Gate 2） / 完成の確認（Gate 3） | 人が OK するまで次へ進まない確認。ランチャーでは「確認待ち」と出ます |
-| 素材リスト（manifest） | 使う映像・音・字幕の一覧 |
-| 生成する（`run`） / 書き出す（`render`） | 生成はサービスにより課金。書き出しは手元で課金なしだが時間がかかる。どちらも承認後だけ |
-| 好み・学び（feedback） | 直したポイントの記録。承認しても自動では反映しない |
+ElevenLabs の効果音（SFX）は、実課金の受け入れが1件記録されています。音声と music の実課金受け入れはまだです。PixVerse の実生成と、その生成から最終ファイルまでの通し書き出しは、サブスク CLI での実機確認として未了です。
+
+## v1 は保守として残る
+
+![セットアップ後のローカルランチャー。制作一覧にサンプル「はじめての継手」が見える](docs/guide/assets/launcher-my-first-tsugite.webp)
+
+既存の `project.yaml` 案件は v1 `0.18.0` のまま完走します。入口のコマンドは `node bin/pipeline` で、一覧は [技術リファレンス](docs/reference.ja.md#コマンド) です。Windows の注意は [Windowsネイティブ利用ガイド](docs/windows.md) です。初回セットアップの依頼文は [こちら](docs/onboarding/codex-setup-prompt.ja.md) です。
+
+v1 では、人が3回止めるまで進みません。唯一の例外は、案件が `gates.gate_2.auto_pass: qc_ok_no_new_assets` を選んだときです。課金・新しい素材・品質の指摘がすべて0のときだけ、素材の確認（Gate 2）は人の OK なしで通ります。
+
+v2 の確認は確認ページだけです。CLI に承認フラグはありません。
 
 ## もっと詳しく
 
-- 以前の README の内容：[技術リファレンス](docs/reference.ja.md)
-- 連携CLI・動画エンジンの版と導入方法：[動画ツールの更新一覧](docs/video-tools.md)
-- Windows：[Windowsネイティブ利用ガイド](docs/windows.md)
-- 版：リポジトリ本体 `0.18.0`。[変更履歴](CHANGELOG.md)
-- v2 alpha（開発中）：[概要](v2/README.md) · [6秒で環境確認](docs/onboarding/first-video.ja.md) · [用途から選ぶ](docs/onboarding/see-and-choose.ja.md)
+- 版：v2 は `2.0.0-alpha.5`。正式版 2.0.0 の条件は [移行判断](v2/docs/migration-plan.ja.md) と [要件](v2/docs/requirements.md) です。
+- v2 のコマンド詳細：[v2/README.ja.md](v2/README.ja.md) · [v2/README.md](v2/README.md)
+- 用途から選ぶ：[see-and-choose](docs/onboarding/see-and-choose.ja.md)
+- 変更履歴：[CHANGELOG.md](CHANGELOG.md) · [v2/CHANGELOG.md](v2/CHANGELOG.md)
 - 開発：[CONTRIBUTING.md](CONTRIBUTING.md)

@@ -24,8 +24,11 @@ Source version **0.18.0**. Public Desktop installers have ended; everyday use is
 
 The independent [継手 / Tsugite v2 alpha](../v2/README.md) adds a small, installable
 CLI with page-only checks, per-service budgets and portable preferences. Existing
-v1 commands and active productions stay on v1. The alpha's paid-service and
-independent-user acceptance gates remain open.
+v1 commands and active productions stay on v1. New work starts from the root
+README on v2. ElevenLabs SFX has one recorded paid acceptance. PixVerse, Kling,
+and TopView connect through each service CLI while that subscription is already
+logged in, not through an API key in settings. That real-machine check and the
+independent-user gates remain open.
 
 From this repository, use `npm run --silent v2 -- --help`, then `npm run --silent v2 -- init
 ./projects/my-video-v2` and `npm run --silent v2 -- plan --project ./projects/my-video-v2`. Keep the

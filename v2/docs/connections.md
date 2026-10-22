@@ -1,5 +1,14 @@
 # Explicit service connections
 
+PixVerse, Kling, and TopView are not connected by writing an API key into
+project settings. The connection is each service's CLI while that
+subscription is already logged in. This page documents that path. It does not
+add a Tsugite login command. The JSON below is the CLI default. Optional HTTP
+for PixVerse and Kling is what the synthetic HTTP tests use, and it is not the
+formal 2.0.0 acceptance method. That method is the subscription-CLI
+real-machine check in [requirements](requirements.md), which is still open.
+ElevenLabs is outside this CLI policy.
+
 Offline and mock mode require no account. `execution: live` is a separate,
 explicit selection. Install a reviewed source package and enable the connection
 in your private `~/.tsugite/config.json`. Isolate that private home with

@@ -2,124 +2,113 @@
 
 [日本語](README.ja.md) | [English](README.md) | [中文](README.zh.md) | [한국어](README.ko.md)
 
-Ask an AI agent, then walk through plan → footage → finished video together on your own PC. What you fix on one film carries into the next.
+New videos start on **v2** (current package `2.0.0-alpha.5`, not the formal 2.0.0 release). A person reviews the plan before generation, and the fixes you keep carry into the next film. Existing `project.yaml` productions stay on **v1** (`0.18.0`), which remains in maintenance.
 
-Previous command lists and developer notes are in [docs/reference.md](docs/reference.md).
+Earlier command lists are in the [technical reference](docs/reference.md).
 
 ## Who it's for
 
-Use Tsugite when you:
+- You do not want to retype the same brief from scratch every time.
+- You want a generation service to bill only after you have reviewed the plan.
+- You want last time's fixes to still be there on the next film.
 
-- Do not want to retype the same brief from scratch every time.
-- Want generation-service billing only after you have reviewed the plan.
-- Do not want last time's fixes (opening length, caption amount) to vanish on the next film.
-
-It is for people who ask Codex or Claude Code, in their own language, to make a video. You do not need to learn Git or the terminal first.
+Ask Codex or Claude Code in your own language.
 
 ## Get started
 
-You do not type commands yourself.
+You do not have to type the commands yourself.
 
-1. Open an empty folder in Codex or start Claude Code in that folder.
-2. Paste the setup request below.
-3. Read the report and say OK only when a change is actually required.
+1. Have this repository on your machine.
+2. Paste the request below to the agent.
+3. Open the confirmation URL from the report yourself, and press approval yourself.
 
 ```text
-Safely set up the official Tsugite repository
+Prepare a zero-credit six-second sample with Tsugite v2 (2.0.0-alpha.5) in this repository.
+Official repository:
 https://github.com/Takamasa045/tsugite
-inside this empty folder.
-Start with read-only environment checks and wait for my approval before any system installation.
-After cloning, use the official setup:check and setup commands through doctor, validate, and plan for the zero-credit sample.
-Do not overwrite existing files, log in, configure secrets, spend credits, run generation, render, approve Gates, commit, or push.
-At the end of your report, ask exactly one question: "Open the launcher?"
-Run setup:open only if I answer yes. If I say no or do not answer, do not open the launcher.
+Read AGENTS.md and v2/skills/tsugite/SKILL.md.
+After npm --prefix v2 ci --ignore-scripts, run
+npm run --silent v2 -- through init, check, and plan.
+Tell me the confirmation-page URL. I will press the approval button.
+Run make and export only after I have approved.
+Do not set API keys, spend credits, change an existing project.yaml, commit, or push.
 ```
 
-The canonical copy-ready Japanese request is [Codex・Claude Codeなどで使う Tsugiteセットアップ依頼文](docs/onboarding/codex-setup-prompt.ja.md).
-
-## What you'll see
-
-![Local launcher after setup, with the sample production はじめての継手 in the list](docs/guide/assets/launcher-my-first-tsugite.webp)
-
-Official setup copies the zero-credit sample production 「はじめての継手」 into `projects/my-first-tsugite/`, then runs environment check (`doctor`), validation (`validate`), and planning (`plan`). At that point there is no billing, login, or generation. The launcher stays closed until you answer yes to the final question.
-
-“Open the launcher?” → yes runs the existing `setup:open` and shows 「はじめての継手」 in the production list. Opening it does not generate, export, or change a waiting check.
+You need Node.js 22.12 or newer on the 22.x line, npm 10 or newer, and FFmpeg with `ffprobe` and `libx264`. The longer walkthrough is the [six-second environment check](docs/onboarding/first-video.ja.md).
 
 ## Quick start
 
-Stable **v1** (`0.18.0`). If you already have this repository and want to type commands yourself: install once, then walk the bundled storyboard sample through validation (`validate`) → planning (`plan`) → the confirmation page (`review` HTML). No billing, no external API, no export (`render`). The browser does not open by itself.
+Run these from the repository root. The sample uses no billing and no external service. `plan` prints the confirmation URL and stays running. The browser opens only when you add `--open`. v2 does not read `TSUGITE_PROJECTS_HOME`. `./my-video` is a new folder. It does not write into the existing `projects/` shelf.
 
 macOS / Linux:
 
 ```sh
-npm ci
-export TSUGITE_PROJECTS_HOME=/tmp/tsugite-quickstart
-mkdir -p "$TSUGITE_PROJECTS_HOME"
-cp -R examples/storyboard-local "$TSUGITE_PROJECTS_HOME/storyboard-local"
-node bin/pipeline validate --config "$TSUGITE_PROJECTS_HOME/storyboard-local/project.yaml"
-node bin/pipeline plan --config "$TSUGITE_PROJECTS_HOME/storyboard-local/project.yaml"
-node bin/pipeline review --config "$TSUGITE_PROJECTS_HOME/storyboard-local/project.yaml"
+npm --prefix v2 ci --ignore-scripts
+npm run --silent v2 -- init ./my-video
+npm run --silent v2 -- check --project ./my-video
+npm run --silent v2 -- plan --project ./my-video
 ```
 
-Windows PowerShell:
+Windows PowerShell uses the same four lines.
 
 ```powershell
-npm ci
-$env:TSUGITE_PROJECTS_HOME = "$env:TEMP\tsugite-quickstart"
-New-Item -ItemType Directory -Force -Path $env:TSUGITE_PROJECTS_HOME | Out-Null
-Copy-Item -Recurse examples/storyboard-local "$env:TSUGITE_PROJECTS_HOME\storyboard-local"
-node bin/pipeline validate --config "$env:TSUGITE_PROJECTS_HOME\storyboard-local\project.yaml"
-node bin/pipeline plan --config "$env:TSUGITE_PROJECTS_HOME\storyboard-local\project.yaml"
-node bin/pipeline review --config "$env:TSUGITE_PROJECTS_HOME\storyboard-local\project.yaml"
+npm --prefix v2 ci --ignore-scripts
+npm run --silent v2 -- init ./my-video
+npm run --silent v2 -- check --project ./my-video
+npm run --silent v2 -- plan --project ./my-video
 ```
 
-The last command prints `確認画面: …（開くには --open）`. Open that path yourself. Add `--open` only if you want the browser opened. `TSUGITE_PROJECTS_HOME` keeps this copy off the real `projects/` shelf.
+After you approve the plan, export from a second terminal. PowerShell uses the same lines.
 
-Need Node.js 22.12 or newer in the 22.x line, npm 10 or newer, and FFmpeg including `ffprobe`. More v1 commands: [technical reference](docs/reference.md#commands). Windows notes: [native Windows and PowerShell guide](docs/windows.md). v2 is alpha; try it from [v2/README](v2/README.md) only if you want the in-progress path.
+```sh
+npm run --silent v2 -- make --project ./my-video
+npm run --silent v2 -- export --project ./my-video
+```
 
-## Ways to ask
+The file is `my-video/out/final.mp4`. The sample creates no new assets, so clip review passes on its own. A project that generates assets needs clip approval on the page before `export`. `npx tsugite` does not fetch this alpha.
 
-Short examples. The full catalog is [Ways to ask](docs/guide/requests.md).
+## Start from a story conversation
 
-- A **structure** for a 30-second vertical ad (no generation).
-- Chapter and summarize a local seminar video without sending it out.
-- A character-led intro. Confirm look and voice in plain language first.
-- Keep last time's “music in the first 0.5 seconds”.
-- Open Premiere Pro and fix a cut (macOS).
+You can settle the structure before any footage or generation. The conversation needs no images and no confirmation page. It does not generate, send data out, spend credits, or approve. After you attach the chosen structure to the project, `plan` above opens the page. Changing the structure invalidates the old approval. The changed parts are listed for another look. Footage is not rebuilt automatically.
 
-## Nothing proceeds without you
+The same command works from this repository and from the npm package. Consult reads only the catalog shipped in the package, `knowledge/story-frameworks/catalog.yaml`. Sources are in `NOTICE.md` beside it. It does not search a parent directory. The catalog is data. It does not mean those forms can be generated.
 
-A person stops the work three times. Nothing continues until you say OK. Generation and export follow the same rule. The only exception is a production that opts into `gates.gate_2.auto_pass: qc_ok_no_new_assets`. Footage check (Gate 2) may then pass without a person's OK only when credits, new assets, and QC issues are all 0. Billing or new footage always stops it.
+```sh
+npm run --silent v2 -- plugin story consult --request "60秒の静かな自然映像。ドラマ・CTA不要" --seconds 60
+```
 
-1. **Plan check (Gate 1)** — May we follow this plan? The launcher offers “Open Gate 1 review”.
-2. **Footage check (Gate 2)** — Are these assets acceptable?
-3. **Final check (Gate 3)** — Is this the finished video?
+PowerShell uses the same line. After you keep a JSON plan, run `plugin story check` and then `plugin story bind`, then `plan`. Detail is in [story consult](v2/docs/story-consult.ja.md). The conversation is [#245](https://github.com/Takamasa045/tsugite/pull/245). The packaged catalog is [#246](https://github.com/Takamasa045/tsugite/pull/246).
 
-Official setup never installs system packages, logs in, sets API keys, spends credits, runs `run` or `render`, decides a Gate, commits, or pushes. The boundary is in the [Japanese setup contract](docs/onboarding/setup-contract.ja.md).
+## Copy a v1 production into v2
 
-## It becomes your workshop
+The original `project.yaml` production stays where it is. Approvals and secrets are not copied. Supported local clips, audio, and plain captions are copied into a new folder.
 
-If the first film's opening is too long, record it under Preferences & Learnings. Repeated notes become candidates. Only approved items may later land in templates or rules.
+```sh
+npm run --silent v2 -- init ./my-video --from-v1 /path/to/v1-project
+```
 
-Approval is permission to do that later work. It does not rewrite prompts, templates, or rules by itself. The stages are observed → recurring → promoted → verified.
+PowerShell uses the same line. Replace the path with your production. A production-specific Remotion graph or character edit graph is not converted. To copy only a finished video, add `--flatten out/final.mp4`. To also keep a bounded archive of the old data, add `--archive-v1`. Both require `--from-v1`. Approve the new plan on the confirmation page afterward.
 
-## Words you'll see
+## How generation services connect
 
-The full list is the [glossary](docs/guide/glossary.md). First use is “plain wording (official name)”.
+PixVerse, Kling, and TopView are not connected by writing an API key into settings. Use each service's CLI while that subscription is already logged in. v2 calls those CLIs after the confirmation page approves a plan. The real-machine check is still open. This page does not choose the login or the billing account, and it does not add a login command. The quick start above does not call those CLIs.
 
-| What you see | Meaning |
-| --- | --- |
-| Production (`project.yaml`) | One video's folder and settings |
-| Plan check (Gate 1) / footage check (Gate 2) / final check (Gate 3) | Human stops. The launcher shows Waiting |
-| Footage list (manifest) | The clips, audio, and captions in use |
-| Generate (`run`) / export (`render`) | Generation may bill a service. Export is local and unpaid but can take time. Both only after approval |
-| Preferences & Learnings (feedback) | Recorded fixes. Approval does not apply them automatically |
+ElevenLabs sound effects have one recorded paid acceptance. Paid acceptance for speech and music is still open. A real PixVerse generation, and a full export of that generation, are still open as a subscription-CLI check on a real machine.
+
+## v1 stays in maintenance
+
+![Local launcher after setup, with the sample production はじめての継手 in the list](docs/guide/assets/launcher-my-first-tsugite.webp)
+
+Existing `project.yaml` productions finish on v1 `0.18.0`. Their command entry is `node bin/pipeline`. The list is the [technical reference](docs/reference.md#commands). Windows notes are in the [native Windows and PowerShell guide](docs/windows.md). The first-time setup request is [here](docs/onboarding/codex-setup-prompt.ja.md).
+
+On v1, a person stops the work three times. The only exception is a production that opts into `gates.gate_2.auto_pass: qc_ok_no_new_assets`. Footage check (Gate 2) may then pass without a person's OK only when credits, new assets, and QC issues are all 0.
+
+v2 checks happen only on the confirmation page. There is no CLI approval flag.
 
 ## Learn more
 
-- Previous README material: [technical reference](docs/reference.md)
-- Integrated CLI and video engine versions: [video tools](docs/video-tools.md)
-- Windows: [native Windows and PowerShell guide](docs/windows.md)
-- Version: repository source `0.18.0`. [Changelog](CHANGELOG.md)
-- v2 alpha (in development): [overview](v2/README.md) · [six-second environment check](docs/onboarding/first-video.ja.md) · [pick a use](docs/onboarding/see-and-choose.ja.md)
+- Versions: v2 is `2.0.0-alpha.5`. Formal 2.0.0 criteria are in the [migration decision](v2/docs/migration-plan.ja.md) and the [requirements](v2/docs/requirements.md).
+- v2 command detail: [v2/README.md](v2/README.md) · [v2/README.ja.md](v2/README.ja.md)
+- Pick a use: [see-and-choose](docs/onboarding/see-and-choose.ja.md)
+- History: [CHANGELOG.md](CHANGELOG.md) · [v2/CHANGELOG.md](v2/CHANGELOG.md)
 - Contributing: [CONTRIBUTING.md](CONTRIBUTING.md)

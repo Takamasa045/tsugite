@@ -2,7 +2,11 @@
 
 Labs. Implements the documented V6 text, image-to-video, first/last-frame
 transition, extend, upscale, prompt-only modify and image-reference Fusion
-protocols with synthetic HTTP tests; no live paid acceptance is claimed. Image
+protocols with synthetic HTTP tests and a subscription CLI path. API-key paid
+acceptance is not the formal 2.0.0 criterion. That criterion is a real
+generation and a full export while the PixVerse CLI is logged in with its
+subscription. The CLI path is in this package and is tested with a fake CLI.
+The real-machine check is open. Image
 and transition tasks take project-local PNG/JPEG/WebP files in `make.inputs`.
 Extend, upscale and modify take a local MP4/MOV/WebM (modify may add up to
 three stills). Those files are hashed into the plan and are not timeline clips.

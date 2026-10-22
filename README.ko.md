@@ -4,7 +4,7 @@
 
 계획 → 소재 → 완성 영상을 사람과 함께 확인하면서 진행하고, 이번에 고친 점을 다음 영상에 이어 갑니다. Tsugite는 내 PC에서 도는 영상 공방입니다.
 
-전체 진입점은 [日本語 README](README.ja.md)와 [English README](README.md)가 정본입니다. 이전 README의 기술 설명은 [docs/reference.ja.md](docs/reference.ja.md)와 [docs/reference.md](docs/reference.md)에 있습니다. 저장소 소프트웨어 버전은 **0.18.0**입니다.
+새 영상은 v2(`2.0.0-alpha.5`, 정식 2.0.0 아님)에서 시작합니다. 기존 `project.yaml` 안건은 v1 **0.18.0** 유지보수에 남습니다. PixVerse, Kling, TopView는 API 키를 설정에 쓰지 않고, 각 서비스 CLI에 구독으로 로그인한 상태에서 씁니다. 경로는 패키지에 있고, 실제 기기 확인은 아직 열려 있습니다. 정본은 [日本語 README](README.ja.md)와 [English README](README.md)입니다. 이전 README의 기술 설명은 [docs/reference.ja.md](docs/reference.ja.md)와 [docs/reference.md](docs/reference.md)에 있습니다.
 
 ## 누구에게
 
