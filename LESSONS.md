@@ -165,3 +165,5 @@ Append-only format:
 - 2026-10-22: Desktopのバイナリアイコン削除でGit binary diffが約7.8 MBになり、verify-tsugiteのspawnSync既定1 MB上限ではsource identityを確立できなかった。diffの捕捉は16 MiBまで全文をハッシュし、上限超過時は引き続きfail closedにする。検証のためにcommitしたり、バイナリ差分を証拠から除外しない。
 
 - 2026-10-22: Node 26のWeb Storage globalがVitest/jsdomのlocalStorageを隠し、Viewerの61テストが失敗した。ブラウザ試験workerだけに `--no-experimental-webstorage` を渡してjsdom固有のStorageを使う。製品コードの保存処理や実CLIのNode機能を無効化しない。
+
+- 2026-10-22: 確認ページの `Referrer-Policy: no-referrer` はネイティブ form POST の `Origin` を `null` にし、同一originガードと衝突する。クロスoriginへの参照元送信を抑えたまま `same-origin` を使い、Origin/cookie/CSRF/digest/scope の検証を維持する。HTTPクライアントだけでなく実ブラウザの form 操作も隔離サンプルで確認する。
