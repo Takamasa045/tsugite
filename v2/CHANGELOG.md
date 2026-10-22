@@ -1,10 +1,10 @@
 # Changelog
 
-`v2/package.json` stays `2.0.0-alpha.5`. This file records work on that alpha.
-It is not a version bump. Draft GitHub Release text, which is not published,
-is in [docs/release-notes/](docs/release-notes/github-release.md).
+`v2/package.json` is `2.0.0-alpha.6`. The combined release body is
+[docs/release-notes/github-release-body.md](docs/release-notes/github-release-body.md).
+This changelog does not push the tag or publish the Release.
 
-## Unreleased
+## 2.0.0-alpha.6 - 2026-10-22
 
 - Point the repository README at v2 for new work. Keep v1 `0.18.0` as
   maintenance for existing `project.yaml` productions. Document `init`,
@@ -22,9 +22,11 @@ is in [docs/release-notes/](docs/release-notes/github-release.md).
   `credits: null` is a successful file plus a kept reservation).
 - Record one ElevenLabs SFX paid acceptance (2 seconds). Speech and music paid
   acceptance stay open.
-- State the connection policy for PixVerse, Kling, and TopView: use each
-  service's CLI while that subscription is already logged in. The path is in
+- Connect PixVerse, Kling, and TopView through each service CLI while that
+  subscription is already logged in
+  ([#248](https://github.com/Takamasa045/tsugite/pull/248)). The path is in
   this package and tests use a fake CLI. Do not treat an API key in settings
-  as the connection. Formal 2.0.0 drops PixVerse API-key paid acceptance and
-  instead requires a real-machine check on that CLI path (a real generation
-  and a full export). That check is open. This note adds no login command.
+  as the connection. The subscription-CLI real-machine check is not done: a
+  real generation and a full export while logged in are still required. This
+  note adds no login command. Formal 2.0.0 drops PixVerse API-key paid
+  acceptance.

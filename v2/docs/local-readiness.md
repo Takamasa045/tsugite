@@ -10,8 +10,9 @@ key: formal 2.0.0 asks for a real-machine check while each service CLI is
 logged in with its subscription, and that check has not happened. These are
 different evidence classes.
 
-The current [alpha source release](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.5)
-is public. The first public prerelease was
+The package version is `2.0.0-alpha.6`. The previous public
+[alpha source release](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.5)
+stays published. This note does not push the new tag. The first public prerelease was
 [alpha.1](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.1).
 The three-OS CI matrix, separate Ubuntu Remotion lane and existing v1
 required CI passed for the published alphas. Gallery/demo/tarball links were
