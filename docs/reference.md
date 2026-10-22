@@ -4,7 +4,7 @@ This page holds the previous README material. The non-engineer entry is [README.
 
 The heading map is in [readme-heading-map.md](guide/readme-heading-map.md).
 
-Public Desktop installers have ended. Everyday use is this GitHub repository plus Codex, Claude Code, or another local coding agent, with a loopback browser launcher. The repository source version is `0.18.0`; independent v2 is `2.0.0-alpha.6`.
+Public Desktop installers have ended. Everyday use is this GitHub repository plus Codex, Claude Code, or another local coding agent, with a loopback browser launcher. The repository source version is `0.18.0`; independent v2 is `2.0.0-alpha.7`.
 
 [日本語](../README.ja.md) | [English](../README.md) | [中文](../README.zh.md) | [한국어](../README.ko.md)
 

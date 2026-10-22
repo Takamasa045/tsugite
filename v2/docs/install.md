@@ -7,7 +7,7 @@ New v2 projects use `tsugite.yaml`; do not overwrite an existing production.
 
 ## Requirements
 
-- Recommended: Node.js 22.23.4 and npm 10.9.8. Source changes also admit patched 24.22.1+ (24.x) and 26.12.1+ (26.x) for compatibility validation. Existing alpha.5 downloads are unchanged; these changes require a new release.
+- Recommended: Node.js 22.23.4 and npm 10.9.8. This alpha.7 package also admits patched 24.22.1+ (24.x) and 26.12.1+ (26.x). Node 26 remains a compatibility candidate until LTS and provider acceptance are complete; Hypit requires Node 22. Earlier downloads are unchanged.
 - FFmpeg and FFprobe on PATH, including the libx264 encoder.
 - No service account, API key or paid provider for the sample.
 
@@ -17,15 +17,15 @@ package does not change your system or buy/install a service automatically.
 
 ## Download and verify
 
-Open the [alpha.6 release](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.6)
-and download `tsugite-2.0.0-alpha.6.tgz` and `SHA256SUMS` into a new working folder.
+Open the [alpha.7 release](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.7)
+and download `tsugite-2.0.0-alpha.7.tgz` and `SHA256SUMS` into a new working folder.
 On macOS, run `shasum -a 256 -c SHA256SUMS` in that folder; on Linux,
 use `sha256sum -c SHA256SUMS`. On Windows, run
-`Get-FileHash .\tsugite-2.0.0-alpha.6.tgz -Algorithm SHA256` and compare it with the
+`Get-FileHash .\tsugite-2.0.0-alpha.7.tgz -Algorithm SHA256` and compare it with the
 line in `SHA256SUMS`. Stop if the digest does not match.
 
 ```sh
-npm install --prefix ./tsugite-local --ignore-scripts ./tsugite-2.0.0-alpha.6.tgz
+npm install --prefix ./tsugite-local --ignore-scripts ./tsugite-2.0.0-alpha.7.tgz
 node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs init ./my-video
 node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs check --project ./my-video
 node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs plan --project ./my-video

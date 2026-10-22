@@ -1,11 +1,11 @@
 # Development checkpoint — alpha readiness
 
-The package version is **2.0.0-alpha.6**. The last published prerelease is
+The package version is **2.0.0-alpha.7**. The last published prerelease is
 **2.0.0-alpha.5** (2026-10-19). v1 source is **0.18.0**. None of these is
 formal v2, paid-service, or independent-user acceptance. This checkpoint does
-not push tag `v2.0.0-alpha.6`.
+not push tag `v2.0.0-alpha.7`.
 
-Install links for the release being prepared select `v2.0.0-alpha.6`. The
+Install links for the release being prepared select `v2.0.0-alpha.7`. The
 published archive remains
 [v2.0.0-alpha.5](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.5).
 See [alpha.5 distribution](docs/release-alpha5.md), the root

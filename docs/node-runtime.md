@@ -39,6 +39,6 @@ Promote only after all of the following are recorded at the same final revision:
 
 If 26 install, native binary, loader, provider, distribution or platform behavior fails, retain 22 as default and block promotion. Fix narrowly or use verified 24 as an interim target. Do not lower checks/coverage, silently skip a required lane, change provider semantics, or bypass approval to make 26 green.
 
-Rollback is a runtime selection: select the previously verified 22 patch and npm 10.9.8 in the user's existing version manager, then reinstall from the same lockfile in the target checkout. Rebuild the Viewer. Preserve `projects`, state, approval records, media and configuration. Published v2 packages need a new version to deliver this change; existing alpha.5 downloads are unchanged.
+Rollback is a runtime selection: select the previously verified 22 patch and npm 10.9.8 in the user's existing version manager, then reinstall from the same lockfile in the target checkout. Rebuild the Viewer. Preserve `projects`, state, approval records, media and configuration. The v2.0.0-alpha.7 package delivers this change; earlier published downloads are unchanged.
 
 Desktop source, Electron/node-pty packaging and embedded terminal bridges are removed. See [Desktop retirement](desktop.md). Historic evidence remains for auditability; no installed app or user data is deleted by this source change.

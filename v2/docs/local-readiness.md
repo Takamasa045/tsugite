@@ -10,7 +10,7 @@ key: formal 2.0.0 asks for a real-machine check while each service CLI is
 logged in with its subscription, and that check has not happened. These are
 different evidence classes.
 
-The package version is `2.0.0-alpha.6`. The previous public
+The package version is `2.0.0-alpha.7`. The previous public
 [alpha source release](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.5)
 stays published. This note does not push the new tag. The first public prerelease was
 [alpha.1](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.1).

@@ -48,7 +48,7 @@ Codex・Claude Codeなど、**ローカルのフォルダを読み書きし、�
 継手 / Tsugite v2で、外部サービスを使わない6秒のサンプルを試したいです。
 このガイドを読んで、使える版と環境を確認し、準備を手伝ってください。
 公開済み版の案内：
-https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.6
+https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.7
 
 すでにリポジトリがある場合は、このフォルダのAGENTS.mdと
 v2/skills/tsugite/SKILL.md、docs/onboarding/first-video.ja.mdを読んでください。
@@ -69,9 +69,9 @@ alpha.6の配布ファイルには、日本語READMEとこの導入ガイドも�
 
 ### 1. ファイルを取得して確かめる
 
-[GitHubのalpha.6配布ページ](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.6)の「Assets」から、次の2つを新しい空の作業フォルダに保存します。
+[GitHubのalpha.6配布ページ](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.7)の「Assets」から、次の2つを新しい空の作業フォルダに保存します。
 
-- `tsugite-2.0.0-alpha.6.tgz`：継手のプログラム。
+- `tsugite-2.0.0-alpha.7.tgz`：継手のプログラム。
 - `SHA256SUMS`：ダウンロードしたファイルが一致するか確かめるための値。
 
 この配布はプログラムと照合用ファイルのみです。完成サンプルの動画・画像やDesktopインストーラーは含みません。**npmレジストリには公開していないため、`npx tsugite`や`npm install tsugite`でこの版を取得しないでください。**
@@ -93,7 +93,7 @@ sha256sum -c SHA256SUMS
 WindowsのPowerShell：
 
 ```powershell
-Get-FileHash .\tsugite-2.0.0-alpha.6.tgz -Algorithm SHA256
+Get-FileHash .\tsugite-2.0.0-alpha.7.tgz -Algorithm SHA256
 Get-Content .\SHA256SUMS
 ```
 
@@ -104,7 +104,7 @@ macOS・Linuxではファイル名の後に`OK`が出ること、Windowsでは2�
 同じ作業フォルダで、1行ずつ実行します。`tsugite-local`と`my-video`は新しく作るフォルダです。すでに同名がある場合は別の空の作業フォルダを使ってください。
 
 ```sh
-npm install --prefix ./tsugite-local --ignore-scripts ./tsugite-2.0.0-alpha.6.tgz
+npm install --prefix ./tsugite-local --ignore-scripts ./tsugite-2.0.0-alpha.7.tgz
 node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs init ./my-video
 node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs check --project ./my-video
 node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs plan --project ./my-video
