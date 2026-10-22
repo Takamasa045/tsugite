@@ -1,5 +1,8 @@
 name: Desktop
 
+env:
+  NPM_CONFIG_AUDIT: 'false'
+
 on:
   workflow_dispatch:
 

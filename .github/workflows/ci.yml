@@ -1,5 +1,8 @@
 name: CI
 
+env:
+  NPM_CONFIG_AUDIT: 'false'
+
 # Push CI only on the default branch so feature-branch pushes do not double-run
 # with pull_request. Cancel superseded in-progress runs for the same PR or ref.
 on:
@@ -66,6 +69,7 @@ jobs:
           sudo apt-get install --no-install-recommends -y ffmpeg
       - run: npm ci
       - run: npm --prefix apps/workflow-viewer ci
+      - run: node --test scripts/offline-audit.node.mjs
       - run: npm run check
       # Root check excludes apps/**; keep Viewer unit/coverage required on Ubuntu.
       - run: npm run viewer:check

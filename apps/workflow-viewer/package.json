@@ -15,7 +15,7 @@
     "test:coverage": "vitest run --configLoader runner --coverage",
     "test:browser": "node --test tests/production-orchestration-browser.test.mjs",
     "preview": "vite preview",
-    "security:audit": "npm audit --audit-level=moderate"
+    "security:audit": "node ../../scripts/offline-audit.mjs --audit-level=moderate"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",

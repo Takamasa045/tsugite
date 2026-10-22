@@ -1,4 +1,7 @@
 name: Tsugite v2 offline
+
+env:
+  NPM_CONFIG_AUDIT: 'false'
 on:
   pull_request:
     paths: ['v2/**', '.github/workflows/v2.yml']
