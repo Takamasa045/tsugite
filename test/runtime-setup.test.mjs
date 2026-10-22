@@ -69,7 +69,9 @@ function prepare(options) {
   const adapterRoot = Object.hasOwn(options, "adapterRoot")
     ? options.adapterRoot
     : fixtureAdapter();
-  return prepareLocalRuntime({ ...options, adapterRoot });
+  // Mocked Hypit CLI fixtures model the separately supported Node 22 runtime.
+  // Unsupported host lines are exercised explicitly below; no real Hypit runs here.
+  return prepareLocalRuntime({ nodeVersion: "v22.23.4", ...options, adapterRoot });
 }
 
 function upJson(overrides = {}) {
@@ -566,7 +568,7 @@ describe("inspectTrustedLocalStarterEndpoints", () => {
 });
 
 describe("Hypit Node >=22.15 diagnostic", () => {
-  it("keeps the additional 22.15 floor without lowering core 22.12", () => {
+  it("keeps Hypit restricted to its independently verified Node 22 line", () => {
     expect(HYPIT_MIN_NODE_VERSION).toBe("22.15.0");
     expect(isHypitSupportedNodeVersion("v22.14.0")).toBe(false);
     expect(isHypitSupportedNodeVersion("v22.14.9")).toBe(false);
@@ -575,7 +577,7 @@ describe("Hypit Node >=22.15 diagnostic", () => {
     expect(isHypitSupportedNodeVersion("v23.0.0")).toBe(false);
   });
 
-  it("rejects Node 22.14 before spawn and does not mutate an existing profile", () => {
+  it.each(["v22.14.0", "v24.22.1", "v26.12.1"])("rejects %s before spawn and does not mutate an existing profile", (nodeVersion) => {
     const workspace = tempWorkspace("node-22-14");
     writePointer(workspace);
     const before = readFileSync(join(workspace, "hypit.runtime.json"));
@@ -583,7 +585,7 @@ describe("Hypit Node >=22.15 diagnostic", () => {
     try {
       prepare({
         workspace,
-        nodeVersion: "v22.14.0",
+        nodeVersion,
         spawnCli: () => {
           spawns += 1;
           return { status: 0, stdout: upJson(), stderr: "" };
@@ -593,7 +595,7 @@ describe("Hypit Node >=22.15 diagnostic", () => {
     } catch (error) {
       expect(error.code).toBe("HYPIT_NODE_UNSUPPORTED");
       expect(error.message).toMatch(/22\.15/);
-      expect(error.message).toMatch(/22\.12/);
+      expect(error.message).toMatch(/22\.23\.4/);
     }
     expect(spawns).toBe(0);
     expect(readFileSync(join(workspace, "hypit.runtime.json")).equals(before)).toBe(true);

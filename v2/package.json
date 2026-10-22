@@ -21,7 +21,7 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=22.12"
+    "node": ">=22.23.4 <23 || >=24.22.1 <25 || >=26.12.1 <27"
   },
   "scripts": {
     "test": "node --test tests/*.node.mjs plugins/*/test.mjs",

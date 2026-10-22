@@ -5,7 +5,7 @@
   "type": "module",
   "packageManager": "npm@10.9.8",
   "engines": {
-    "node": ">=22.12 <23",
+    "node": ">=22.23.4 <23 || >=24.22.1 <25 || >=26.12.1 <27",
     "npm": ">=10"
   },
   "bin": {
@@ -24,11 +24,6 @@
     "viewer:open": "node bin/pipeline viewer-launcher --open",
     "viewer:check": "npm --prefix apps/workflow-viewer run test:coverage && npm --prefix apps/workflow-viewer run typecheck",
     "viewer:build": "npm --prefix apps/workflow-viewer run build",
-    "desktop:test": "npm --prefix apps/desktop test",
-    "desktop:prepare": "npm --prefix apps/desktop run build:runtime",
-    "desktop:package": "npm --prefix apps/desktop run package",
-    "desktop:make": "npm --prefix apps/desktop run make",
-    "desktop:audit": "npm --prefix apps/desktop run package:audit",
     "security:audit": "node scripts/offline-audit.mjs --omit=dev --audit-level=moderate && node scripts/offline-audit.mjs --audit-level=moderate",
     "vendor:check": "node scripts/check-vendor-boundary.mjs",
     "postinstall": "node backends/hyperframes/apply-pinned-patches.mjs",

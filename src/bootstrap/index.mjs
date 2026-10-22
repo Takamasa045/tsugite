@@ -1,3 +1,4 @@
+import { isSupportedNodeVersion } from "../../v2/src/node-runtime.mjs";
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import {
@@ -805,12 +806,6 @@ function quoteForDisplay(value) {
   return /^[A-Za-z0-9_./:@=+-]+$/.test(value) ? value : JSON.stringify(value);
 }
 
-function isSupportedNodeVersion(version) {
-  const match = /^v?(\d+)\.(\d+)\.(\d+)/.exec(version);
-  if (!match) return false;
-  return Number(match[1]) === 22 && Number(match[2]) >= 12;
-}
-
 function leadingMajor(version) {
   const match = /^v?(\d+)/.exec(version);
   return match ? Number(match[1]) : Number.NaN;
@@ -854,9 +849,9 @@ function gitExecutable(platform) {
 
 function nodeRemediation(platform) {
   if (platform === "win32") {
-    return "Node.js 22.12以上23未満が必要です。自動ではインストールしません。公式installerでの導入内容を確認・承認し、terminalを開き直してからsetup:checkを再実行してください。";
+    return "Node.js 22.23.4以上の22.xを推奨します（24.22.1以上の24.x / 26.12.1以上の26.xは互換性検証対象）。自動ではインストールしません。公式installerでの導入内容を確認・承認し、terminalを開き直してからsetup:checkを再実行してください。";
   }
-  return "Node.js 22.12以上23未満が必要です。自動ではインストールしません。導入内容を確認・承認してからsetup:checkを再実行してください。";
+  return "Node.js 22.23.4以上の22.xを推奨します（24.22.1以上の24.x / 26.12.1以上の26.xは互換性検証対象）。自動ではインストールしません。導入内容を確認・承認してからsetup:checkを再実行してください。";
 }
 
 function ffmpegRemediation(platform) {

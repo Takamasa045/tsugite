@@ -34,7 +34,7 @@ npm run --silent v2 -- init、check、plan まで進めてください。
 APIキーの設定、課金、既存の project.yaml の変更、commit、push はしないでください。
 ```
 
-必要なソフトは Node.js 22.12以上の22.x、npm 10以上、FFmpeg（`ffprobe` と `libx264`）です。手順の詳細は [6秒で環境確認](docs/onboarding/first-video.ja.md) です。
+必要なソフトは Node.js 22.23.4以上の22.x、npm 10以上、FFmpeg（`ffprobe` と `libx264`）です。24／26系の互換性検証と移行条件は[Node方針](docs/node-runtime.md)を参照してください。手順の詳細は [6秒で環境確認](docs/onboarding/first-video.ja.md) です。
 
 ## クイックスタート
 

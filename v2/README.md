@@ -44,7 +44,7 @@ external acceptance.
 
 ## Try the offline sample
 
-Requires Node.js 22.12+ and FFmpeg/FFprobe with libx264 on PATH. From a checkout:
+Recommended: Node.js 22.23.4 (patched 24/26 are compatibility candidates) and FFmpeg/FFprobe with libx264 on PATH. From a checkout:
 
 ```sh
 npm --prefix /path/to/tsugite/v2 ci --ignore-scripts

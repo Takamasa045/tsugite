@@ -20,37 +20,6 @@ async function readLauncherStyleSheet(): Promise<string> {
   return fs.readFileSync(path.resolve(cwd, 'src/styles/launcher-yakisugi.css'), 'utf8')
 }
 
-const terminalWrite = vi.fn()
-const terminalDispose = vi.fn()
-let terminalInputListener: ((data: string) => void) | undefined
-const terminalOnData = vi.fn((listener: (data: string) => void) => {
-  terminalInputListener = listener
-  return { dispose: vi.fn() }
-})
-const terminalOpen = vi.fn()
-const terminalFocus = vi.fn()
-
-vi.mock('@xterm/xterm', () => ({
-  Terminal: vi.fn(function Terminal() {
-    return {
-      cols: 96,
-      rows: 28,
-      dispose: terminalDispose,
-      focus: terminalFocus,
-      loadAddon: vi.fn(),
-      onData: terminalOnData,
-      open: terminalOpen,
-      write: terminalWrite,
-    }
-  }),
-}))
-
-vi.mock('@xterm/addon-fit', () => ({
-  FitAddon: vi.fn(function FitAddon() {
-    return { dispose: vi.fn(), fit: vi.fn() }
-  }),
-}))
-
 const projects = [
   {
     id: 'project-alpha',
@@ -542,7 +511,7 @@ describe('LauncherApp', () => {
     const chooser = await screen.findByRole('region', { name: 'AI CLI（必要なときだけ）' })
     const toggle = within(chooser).getByRole('button', { name: /必要なときだけAI CLIを使う/ })
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    expect(within(chooser).queryByText('ブラウザでは内蔵ターミナルを利用できません')).not.toBeInTheDocument()
+    expect(within(chooser).queryByText('いつものCodexまたはClaudeと、この確認画面を並べて使えます')).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
     expect(screen.queryByRole('region', { name: 'AI CLI（必要なときだけ）' })).not.toBeInTheDocument()
@@ -555,99 +524,10 @@ describe('LauncherApp', () => {
     const reopenedChooser = screen.getByRole('region', { name: 'AI CLI（必要なときだけ）' })
     await user.click(within(reopenedChooser).getByRole('button', { name: /必要なときだけAI CLIを使う/ }))
     expect(within(reopenedChooser).getByRole('button', { name: /必要なときだけAI CLIを使う/ })).toHaveAttribute('aria-expanded', 'true')
-    expect(within(reopenedChooser).getByText(/ブラウザでは内蔵ターミナルを利用できません/)).toBeVisible()
+    expect(within(reopenedChooser).getByText(/いつものCodexまたはClaudeと、この確認画面を並べて使えます/)).toBeVisible()
     expect(within(reopenedChooser).getByText('普段はこの確認画面だけで使えます。')).toBeVisible()
   })
 
-  it('Desktopでインストール済みagentを選び、端末を開始・停止できる', async () => {
-    const user = userEvent.setup()
-    const stop = vi.fn()
-      .mockRejectedValueOnce(new Error('stop failed'))
-      .mockResolvedValueOnce(undefined)
-    const write = vi.fn().mockResolvedValue(undefined)
-    const removeDataListener = vi.fn()
-    const removeExitListener = vi.fn()
-    let desktopDataListener: ((event: { sessionId: string; data: string }) => void) | undefined
-    let desktopExitListener: ((event: { sessionId: string; exitCode: number }) => void) | undefined
-    const start = vi.fn().mockImplementation(async () => {
-      const sessionId = start.mock.calls.length === 1 ? 'session-claude' : 'session-fast-exit'
-      desktopDataListener?.({ sessionId, data: sessionId === 'session-claude' ? '起動時の案内\r\n' : '終了します\r\n' })
-      if (sessionId === 'session-fast-exit') desktopExitListener?.({ sessionId, exitCode: 0 })
-      return { sessionId }
-    })
-    const desktopWindow = window as Window & { tsugiteDesktop?: unknown }
-    Object.defineProperty(desktopWindow, 'tsugiteDesktop', {
-      configurable: true,
-      value: {
-        agents: {
-          list: vi.fn().mockResolvedValue({
-            workspaceLabel: 'tsugite-hybrid-agent-workspace',
-            hosts: [
-              { id: 'codex', label: 'Codex CLI', installed: false, detail: 'Codex CLIが見つかりません' },
-              { id: 'claude', label: 'Claude Code', installed: true, detail: '利用できます' },
-            ],
-          }),
-          start,
-          write,
-          resize: vi.fn().mockResolvedValue(undefined),
-          stop,
-          onData: vi.fn((listener) => {
-            desktopDataListener = listener
-            return removeDataListener
-          }),
-          onExit: vi.fn((listener) => {
-            desktopExitListener = listener
-            return removeExitListener
-          }),
-        },
-      },
-    })
-
-    try {
-      render(<LauncherApp fetcher={createLauncherFetcher()} token="session-token" />)
-
-      const chooser = await screen.findByRole('region', { name: 'AI CLI（必要なときだけ）' })
-      await user.click(within(chooser).getByRole('button', { name: /必要なときだけAI CLIを使う/ }))
-      expect((await within(chooser).findAllByText('作業フォルダ：tsugite-hybrid-agent-workspace'))[0]).toBeVisible()
-      expect(within(chooser).getByRole('radio', { name: /Codex CLI/ })).toBeDisabled()
-      const claude = within(chooser).getByRole('radio', { name: /Claude Code/ })
-      expect(claude).toBeChecked()
-
-      await user.click(await within(chooser).findByRole('button', { name: 'Claude Codeを開始' }))
-      await waitFor(() => expect(start).toHaveBeenCalledWith({ hostId: 'claude', cols: 96, rows: 28 }))
-      expect(terminalWrite).toHaveBeenCalledWith('起動時の案内\r\n')
-      expect(within(chooser).getByRole('region', { name: 'Claude Codeの端末' })).toBeVisible()
-      expect(within(chooser).getByText('Claude Codeと作業中')).toBeVisible()
-      expect(claude).toBeDisabled()
-      desktopDataListener?.({ sessionId: 'session-claude', data: 'Claudeからの応答\r\n' })
-      expect(terminalWrite).toHaveBeenCalledWith('Claudeからの応答\r\n')
-      terminalInputListener?.('質問を入力\r')
-      expect(write).toHaveBeenCalledWith({ sessionId: 'session-claude', data: '質問を入力\r' })
-
-      await user.click(screen.getByRole('tab', { name: 'テンプレート' }))
-      expect(screen.queryByRole('region', { name: 'AI CLI（必要なときだけ）' })).not.toBeInTheDocument()
-      expect(stop).not.toHaveBeenCalled()
-      await user.click(screen.getByRole('tab', { name: '制作作品' }))
-      const reopenedChooser = screen.getByRole('region', { name: 'AI CLI（必要なときだけ）' })
-      expect(within(reopenedChooser).getByText('Claude Codeと作業中')).toBeVisible()
-
-      await user.click(within(reopenedChooser).getByRole('button', { name: 'Claude Codeを停止' }))
-      await waitFor(() => expect(stop).toHaveBeenCalledWith({ sessionId: 'session-claude' }))
-      expect(within(reopenedChooser).getByText('Claude Codeを停止できませんでした。もう一度停止してください。')).toBeVisible()
-      expect(claude).toBeDisabled()
-      await user.click(within(reopenedChooser).getByRole('button', { name: 'Claude Codeを停止' }))
-      await waitFor(() => expect(stop).toHaveBeenCalledTimes(2))
-      expect(claude).toBeEnabled()
-      expect(removeDataListener).toHaveBeenCalledTimes(1)
-      expect(removeExitListener).toHaveBeenCalledTimes(1)
-
-      await user.click(within(chooser).getByRole('button', { name: 'Claude Codeを開始' }))
-      expect(await within(chooser).findByText('Claude Codeは終了しました（終了コード 0）。もう一度開始できます。')).toBeVisible()
-      expect(within(chooser).getByRole('button', { name: 'Claude Codeを開始' })).toBeEnabled()
-    } finally {
-      delete desktopWindow.tsugiteDesktop
-    }
-  })
 
   it('初回起動で dedicated workflow の確認待ちだけをタブとピックアップへ表示する', async () => {
     const user = userEvent.setup()
@@ -1094,33 +974,6 @@ describe('LauncherApp', () => {
     expect(fetcher.mock.calls.filter(([url]) => url === '/api/projects')).toHaveLength(2)
   })
 
-  it('Desktopの0件状態では現在のworkspaceと安全な再選択導線を表示する', async () => {
-    const user = userEvent.setup()
-    const current = vi.fn().mockResolvedValue({ label: '選択中の制作フォルダ' })
-    const select = vi.fn().mockResolvedValue({
-      status: 'busy',
-      workspace: { label: '選択中の制作フォルダ' },
-    })
-    const desktopWindow = window as Window & { tsugiteDesktop?: unknown }
-    Object.defineProperty(desktopWindow, 'tsugiteDesktop', {
-      configurable: true,
-      value: { workspace: { current, select } },
-    })
-
-    try {
-      render(<LauncherApp fetcher={createLauncherFetcher({ projectList: [] })} token="session-token" />)
-
-      expect(await screen.findByText('現在のworkspace：選択中の制作フォルダ')).toBeVisible()
-      await user.click(screen.getByRole('button', { name: 'workspaceを選び直す' }))
-
-      expect(select).toHaveBeenCalledOnce()
-      expect(screen.getByRole('alert')).toHaveTextContent(
-        '実行中の処理があります。AI CLIや制作処理を停止してから選び直してください。',
-      )
-    } finally {
-      delete desktopWindow.tsugiteDesktop
-    }
-  })
 
   it('大量の案件を最近更新順に12件ずつ表示し、状態で絞り込める', async () => {
     const user = userEvent.setup()

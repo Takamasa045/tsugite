@@ -10,7 +10,7 @@ Thank you for helping improve Tsugite. This project is a local, human-gated AI v
 
 ## Local checks
 
-Use Node.js 22.x and install the repository dependencies before making code changes:
+Use Node.js 22.23.4 (the default) and install the repository dependencies before making code changes:
 
 ```sh
 npm ci

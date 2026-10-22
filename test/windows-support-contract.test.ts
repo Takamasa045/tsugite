@@ -10,7 +10,7 @@ describe("Windows support contract", () => {
     expect(packageJson.scripts.test).not.toContain("'");
     expect(packageJson.scripts["test:coverage"]).not.toContain("'");
     expect(packageJson.scripts["test:coverage"]).toMatch(/(?:^|\s)--maxWorkers=4(?:\s|$)/);
-    expect(packageJson.engines.node).toBe(">=22.12 <23");
+    expect(packageJson.engines.node).toBe(">=22.23.4 <23 || >=24.22.1 <25 || >=26.12.1 <27");
   });
 
   it("runs the native Windows smoke lane through the cross-platform CLI entrypoint", async () => {

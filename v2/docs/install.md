@@ -7,7 +7,7 @@ New v2 projects use `tsugite.yaml`; do not overwrite an existing production.
 
 ## Requirements
 
-- Node.js 22.12 or newer and npm 10 or newer.
+- Recommended: Node.js 22.23.4 and npm 10.9.8. Source changes also admit patched 24.22.1+ (24.x) and 26.12.1+ (26.x) for compatibility validation. Existing alpha.5 downloads are unchanged; these changes require a new release.
 - FFmpeg and FFprobe on PATH, including the libx264 encoder.
 - No service account, API key or paid provider for the sample.
 

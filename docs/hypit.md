@@ -6,7 +6,7 @@ core（`src/`）には Hypit 固有コードを置かない。実装は `adapter
 
 ソース版は **0.13.0**。git タグ、CI、完成メディア、人間承認、MP4 受け入れはここでは主張しない。
 
-Tsugite 本体は Node.js **22.12 以上 23 未満**。Hypit runtime（`npm run hypit:install` と `runtime init` / `runtime up`）は追加で **Node.js 22.15 以上**（22.x）が必要。22.12〜22.14 では engine 警告、または準備前検査 `HYPIT_NODE_UNSUPPORTED` で停止する。本体の最低版は上げない。
+Tsugite本体の既定はNode.js **22.23.4**です。Hypit runtime（`npm run hypit:install` と `runtime init` / `runtime up`）は独立したガードで**22.15以上の22.xだけ**を許可し、24／26系は `HYPIT_NODE_UNSUPPORTED` で停止します。本体の24／26系互換性検証に成功してもHypitの対応証拠にはなりません。Hypitを使う間は22.23.4を維持し、ガードの拡張は別のruntime受入試験後に行います。
 
 ## 公式ソース（2026-10-19 JST 更新確認）
 

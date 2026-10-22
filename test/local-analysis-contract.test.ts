@@ -39,7 +39,7 @@ describe("local media analysis distribution contract", () => {
   it("makes ffmpeg readiness machine-checkable without API credentials", async () => {
     const probedCommands: string[][] = [];
     const report = await inspectEnvironment("fixtures/projects/local-media-analysis.yaml", {
-      nodeVersion: "v22.17.0",
+      nodeVersion: "v22.23.4",
       commandExists: async () => true,
       probeCommand: async (command) => {
         probedCommands.push(command);

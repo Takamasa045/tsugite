@@ -10,7 +10,7 @@ afterEach(async () => {
 });
 
 describe("environment doctor", () => {
-  it("fails closed outside the supported Node 22 release line", async () => {
+  it("fails closed outside the reviewed even Node release lines", async () => {
     const report = await inspectEnvironment(undefined, {
       nodeVersion: "v23.1.0",
       commandExists: async () => true
@@ -22,14 +22,14 @@ describe("environment doctor", () => {
     );
   });
 
-  it("requires the Node 22 minor used by the bundled Viewer toolchain", async () => {
+  it.each([["v22.23.3", "v22.23.4"], ["v24.22.0", "v24.22.1"], ["v26.12.0", "v26.12.1"]])("requires patched releases: %s -> %s", async (oldVersion, patchedVersion) => {
     const unsupported = await inspectEnvironment(undefined, {
-      nodeVersion: "v22.11.0",
+      nodeVersion: oldVersion,
       commandExists: async () => true,
       probeCommand: async () => ({ ok: true, version: "10.9.0" })
     });
     const supported = await inspectEnvironment(undefined, {
-      nodeVersion: "v22.12.0",
+      nodeVersion: patchedVersion,
       commandExists: async () => true,
       probeCommand: async () => ({ ok: true, version: "10.9.0" })
     });
@@ -38,7 +38,7 @@ describe("environment doctor", () => {
     expect(unsupported.checks).toContainEqual(expect.objectContaining({
       name: "node",
       ok: false,
-      remediation: expect.stringContaining("22.12")
+      remediation: expect.stringContaining("22.23.4")
     }));
     expect(supported.checks).toContainEqual(expect.objectContaining({ name: "node", ok: true }));
   });

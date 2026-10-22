@@ -36,6 +36,9 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
+    // Use jsdom's per-window browser storage, not Node 25+ process-global storage.
+    // https://nodejs.org/api/globals.html#localstorage
+    execArgv: ['--no-experimental-webstorage'],
     globals: true,
     setupFiles: './tests/setup.ts',
     exclude: [

@@ -6,7 +6,7 @@ AIエージェントの制作案件を選び、木組みの3D工程図で確認�
 
 ## 起動
 
-前提: Node.js 22.12以上の22.x LTS / npm 10以上
+前提: Node.js 22.23.4以上の22.x LTS / npm 10以上
 
 ```sh
 cd apps/workflow-viewer
@@ -33,9 +33,9 @@ node bin/pipeline viewer-launcher --json
 
 表示されたURLを自分で開き、確認画面を見てからGateを承認します。`npm run viewer:open` はブラウザを自動で開きたい場合だけ使います。
 
-ブラウザの制作棚から案件を選ぶと、保存済みの制作状態を確認し、3D Viewerを更新して開けます。Desktop UIから`validate` / `plan` / `review` / `run` / `render` / Gate判定は実行しません。これらの制作操作は、既存の承認境界を守ってCLIから行います。
+ブラウザの制作棚から案件を選ぶと、保存済みの制作状態を確認し、3D Viewerを更新して開けます。ブラウザUIから`validate` / `plan` / `review` / `run` / `render` / Gate判定は実行しません。これらの制作操作は、既存の承認境界を守ってCLIから行います。
 
-Desktopで制作棚が0件の場合だけ、現在のworkspace名と再選択ボタンを表示します。選択先はDesktop main processがOSのフォルダ選択から受け取り、安全性を検証して保存したあとアプリ全体を再起動します。ブラウザ版はこの操作を持ちません。
+Desktop専用のworkspace選択と内蔵端末は削除しました。制作フォルダは既存のprojects home設定を使い、Codex / Claudeを外部で開いて確認画面と並べて使います。
 
 「最新状態に更新して開く」を押すと、現在の実行記録から3D Viewerを再生成して表示します。以前に生成済みなら「前回の表示を開く」も使えます。「テンプレート」タブでは、`templates/*/template.yaml` を型→軸（variants）→準備チェックリストのウィザードで確認できます。棚は閲覧専用で、生成・実行は行いません（制作ブリーフ文言の控えコピーのみ可）。メタデータ契約は [テンプレートカタログ](../../docs/template-catalog.md) を参照してください。
 

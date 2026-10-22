@@ -1,3 +1,4 @@
+import { isSupportedNodeVersion } from "../v2/src/node-runtime.mjs";
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { renderPreflightCommands } from "./backends/capabilities.js";
@@ -47,7 +48,7 @@ export async function inspectEnvironment(configPath?: string, options: DoctorOpt
   const probeCommand = async (command: string[]): Promise<CommandProbeResult> =>
     options.probeCommand ? options.probeCommand(command) : executeProbe(command, environment);
   const nodeVersion = options.nodeVersion ?? process.version;
-  const nodeOk = nodeSupported(nodeVersion);
+  const nodeOk = isSupportedNodeVersion(nodeVersion);
   const npm = await commandCheck("npm", ["npm", "--version"], {
     commandExists,
     probeCommand,
@@ -300,11 +301,6 @@ function parseJsonCommand(value: string | undefined): string[] | undefined {
   }
 }
 
-function nodeSupported(version: string): boolean {
-  const [major, minor] = version.replace(/^v/, "").split(".").map(Number);
-  return major === 22 && Number.isInteger(minor) && minor >= 12;
-}
-
 function leadingMajor(version: string): number | undefined {
   const match = version.trim().match(/^(\d+)/);
   if (!match) return undefined;
@@ -313,8 +309,8 @@ function leadingMajor(version: string): number | undefined {
 }
 
 function nodeRemediation(platform: NodeJS.Platform): string {
-  if (platform === "win32") return "Install Node.js 22.12 or newer in the 22.x LTS line, reopen the terminal, then rerun doctor.";
-  return "Install and select Node.js 22.12 or newer in the 22.x LTS line, then rerun doctor.";
+  if (platform === "win32") return "Install Node.js 22.23.4 or newer in the 22.x LTS line (24.22.1+ / 26.12.1+ are compatibility candidates), reopen the terminal, then rerun doctor.";
+  return "Install and select Node.js 22.23.4 or newer in the 22.x LTS line (24.22.1+ / 26.12.1+ are compatibility candidates), then rerun doctor.";
 }
 
 function ffmpegRemediation(platform: NodeJS.Platform): string {

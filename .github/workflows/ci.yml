@@ -19,20 +19,6 @@ permissions:
   contents: read
 
 jobs:
-  desktop-source:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: apps/desktop/package-lock.json
-      - run: npm --prefix apps/desktop ci --ignore-scripts
-      - run: npm --prefix apps/desktop test
-      - run: npm --prefix apps/desktop run security:audit
-
   download-site:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -52,17 +38,23 @@ jobs:
       - run: npm --prefix apps/download-site run security:audit
 
   check:
+    name: ${{ matrix.node == '22.23.4' && 'check' || format('check-node-{0}', matrix.node) }}
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22.23.4', '24.22.1', '26.12.1']
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: '22.23.4'
+          node-version: ${{ matrix.node }}
           cache: npm
+      - run: npm install --global npm@10.9.8 --no-audit --no-fund
       - name: Verify patched Node runtime
         run: >-
-          node -e "console.log(JSON.stringify({version:process.version,execPath:process.execPath})); if (process.version !== 'v22.23.4') process.exit(1)"
+          node -e "console.log(JSON.stringify({version:process.version,execPath:process.execPath})); if (process.version !== 'v${{ matrix.node }}') process.exit(1)"
       - name: Install media probe
         run: |
           sudo apt-get update
@@ -81,19 +73,50 @@ jobs:
       - run: node bin/pipeline run --config examples/local-fixture/project.yaml --dry-run --json
       - run: npm run security:audit
 
+  macos-smoke:
+    name: ${{ matrix.node == '22.23.4' && 'macos-smoke' || format('macos-smoke-node-{0}', matrix.node) }}
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22.23.4', '24.22.1', '26.12.1']
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm install --global npm@10.9.8 --no-audit --no-fund
+      - name: Verify patched Node runtime
+        run: >-
+          node -e "console.log(JSON.stringify({version:process.version,execPath:process.execPath})); if (process.version !== 'v${{ matrix.node }}') process.exit(1)"
+      - run: command -v ffmpeg || brew install ffmpeg
+      - run: npm ci
+      - run: npm --prefix apps/workflow-viewer ci
+      - run: npm run build
+      - run: npm run viewer:build
+      - run: node .agents/skills/verify-tsugite/scripts/verify.mjs all --feature project-validation
+
   # Windows lane: platform smoke only. Full unit/coverage/vendor checks live in `check`.
   windows-smoke:
+    name: ${{ matrix.node == '22.23.4' && 'windows-smoke' || format('windows-smoke-node-{0}', matrix.node) }}
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22.23.4', '24.22.1', '26.12.1']
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: '22.23.4'
+          node-version: ${{ matrix.node }}
           cache: npm
+      - run: npm install --global npm@10.9.8 --no-audit --no-fund
       - name: Verify patched Node runtime
         run: >-
-          node -e "console.log(JSON.stringify({version:process.version,execPath:process.execPath})); if (process.version !== 'v22.23.4') process.exit(1)"
+          node -e "console.log(JSON.stringify({version:process.version,execPath:process.execPath})); if (process.version !== 'v${{ matrix.node }}') process.exit(1)"
       - name: Install media probe
         shell: pwsh
         run: |

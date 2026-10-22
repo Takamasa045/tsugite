@@ -34,7 +34,7 @@ Run make and export only after I have approved.
 Do not set API keys, spend credits, change an existing project.yaml, commit, or push.
 ```
 
-You need Node.js 22.12 or newer on the 22.x line, npm 10 or newer, and FFmpeg with `ffprobe` and `libx264`. The longer walkthrough is the [six-second environment check](docs/onboarding/first-video.ja.md).
+You need Node.js 22.23.4 or newer on the 22.x line, npm 10 or newer, and FFmpeg with `ffprobe` and `libx264`. For 24/26 compatibility candidates, see the [runtime policy](docs/node-runtime.md). The longer walkthrough is the [six-second environment check](docs/onboarding/first-video.ja.md).
 
 ## Quick start
 

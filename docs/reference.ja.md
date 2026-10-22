@@ -43,7 +43,7 @@ AIエージェントは単独でも編集できます。継手では、**どの�
 ### 用意するもの
 
 - パソコンと、ファイル操作・コマンド実行ができる環境。
-- **Node.js 22.12以上の22.xとnpm 10以上**、**FFmpeg・FFprobe**。FFmpegは`libx264`対応が必要です。これらは動画処理を動かすためのソフトです。
+- **Node.js 22.23.4以上の22.xとnpm 10以上**、**FFmpeg・FFprobe**。FFmpegは`libx264`対応が必要です。これらは動画処理を動かすためのソフトです。
 - 操作を任せるなら、ローカルのフォルダを扱える**Codex・Claude Codeなど**。ブラウザのチャットだけではパソコン内の準備は実行できません。
 
 ソフトの取得と初回の依存導入にはインターネット接続が必要です。準備後のサンプル制作はオフラインで動きます。エージェント自体の利用料金は別です。Desktopアプリの一般配布は終了しているため、インストーラーを探す必要はありません。
@@ -167,7 +167,7 @@ MiniMax direct / MiniMax HTTP は **preflight-only** のまま、送信可能と
 
 | 追加 | 役割 | 詳細 |
 | --- | --- | --- |
-| Hypit 制作 | adapter 所有の authoring 経路（`npm run hypit:install`）。pipeline render backend ではなく、Gate 1 / 3 の代替でもない。live な `hypit build` / MP4 受け入れはソース bump では主張しない。Hypit runtime は Node.js 22.15以上（22.x）。本体の最低版は 22.12 | [Hypit](hypit.md) |
+| Hypit 制作 | adapter 所有の authoring 経路（`npm run hypit:install`）。pipeline render backend ではなく、Gate 1 / 3 の代替でもない。live な `hypit build` / MP4 受け入れはソース bump では主張しない。Hypit runtime は Node.js 22.15以上（22.x）。本体の最低版は 22.23.4 | [Hypit](hypit.md) |
 | Editframe examples | 公式サンプル 27件の固定ギャラリー。`npm run editframe:examples:install` のあと `npm run editframe:examples` | [Editframe examples](editframe-examples.md) |
 | Agent Services | 公開 read-only Remote MCP 用の別 registry（`services` / `service-tools` / `service-call`）。生成 `connections` とは分離 | [Agent Services](agent-services.md) |
 | Shitate import | 別リポの SHA-256 lock 付きキャラ snapshot を取り込む。通常利用には不要 | [Shitate連携](shitate.md) |
@@ -240,7 +240,7 @@ Claude Codeでは `.claude/skills/tsugite/SKILL.md` が `/tsugite` として同�
 
 ## ローカルランチャーと3D Viewer
 
-Tsugiteリポジトリをいつもの Codex / Claude 環境で開き、案件確認にはブラウザ版ランチャーを並べます。Electron 版は開発・回帰検証用です。配布状態は [Desktop](desktop.md) を参照してください。
+Tsugiteリポジトリをいつもの Codex / Claude 環境で開き、案件確認にはブラウザ版ランチャーを並べます。Electronソースと内蔵端末は削除しました。[Desktop終了案内](desktop.md)を参照してください。
 
 ```sh
 npm --prefix apps/workflow-viewer ci  # 初回のみ
@@ -264,7 +264,7 @@ JSON仕様、操作、制限は [`apps/workflow-viewer/README.md`](../apps/workf
 
 ## セットアップ詳細とOS別の注意
 
-必要環境は Git、Node.js 22.12以上の22.x LTS、npm 10以上、FFmpeg（`ffprobe`を含む）です。任意の Hypit 制作は追加で Node.js 22.15以上（22.x）が必要です。本体の最低版は 22.12 のままです。
+必要環境は Git、Node.js 22.23.4以上の22.x LTS、npm 10以上、FFmpeg（`ffprobe`を含む）です。推奨版22.23.4は任意のHypit runtimeのNode 22最低版も満たします。24／26系と任意連携の検証範囲は[Node方針](node-runtime.md)を参照してください。
 
 ```sh
 # macOS
@@ -514,4 +514,4 @@ QA の判定ルール       -> Gate 2 / Gate 3 checks + report schema/tests
 - `npm run check` はvendor boundary、TypeScript build、全テストに加え、`src/`のstatements / functions / linesが80%以上、branchesが74.4%以上であることを強制します（Production Orchestration 導入後の保持値。75%復帰は残債）。高core環境やCI runnerでもprocess-heavyなfixtureを安定させるため、coverageはVitestを最大4 workerで実行します。
 - `npm run security:audit` はproduction依存と開発依存を含む全体の両方を検査し、moderate以上のadvisoryで失敗します。
 - この workspace path には `*` が含まれるため、Vite が警告する場合があります。現在この path でも tests は通りますが、運用上ノイズになる場合は `*` を含まない path に repo を移してください。
-- 1.0 は live provider/billing 証拠と packaged Desktop UAT がまだ必要です。Windows smoke は GitHub Actions で確認済みです。Desktop インストーラーはこのソースリリースの対象外です。
+- 1.0 は live provider/billing 証拠 がまだ必要です。Windows smoke は GitHub Actions で確認済みです。Desktop インストーラーはこのソースリリースの対象外です。

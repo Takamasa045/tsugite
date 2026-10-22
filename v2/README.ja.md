@@ -14,7 +14,7 @@
 
 ## 目的別の案内
 
-- 初回導入：[日本語のはじめてガイド](docs/onboarding/first-video.ja.md)。Node.js 22.12以上、npm 10以上、libx264対応FFmpeg・FFprobeが必要です。最初のサンプルにはAPIキーも生成クレジットも不要です。
+- 初回導入：[日本語のはじめてガイド](docs/onboarding/first-video.ja.md)。Node.js 22.23.4以上、npm 10以上、libx264対応FFmpeg・FFprobeが必要です。最初のサンプルにはAPIキーも生成クレジットも不要です。
 - 自分の素材：[素材確認・方針選択・冒頭試写・品質レビュー](docs/production-guidance.md)。素材を実際に確認し、今回の希望を優先します。装飾の自動生成ではありません。
 - コマンドと設定：[English README](README.md)・[対応範囲](docs/requirements.md)・[プラグインとライセンス](docs/plugins.md)。
 
