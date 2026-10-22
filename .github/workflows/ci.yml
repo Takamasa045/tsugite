@@ -37,9 +37,12 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: '22.23.4'
           cache: npm
           cache-dependency-path: apps/download-site/package-lock.json
+      - name: Verify patched Node runtime
+        run: >-
+          node -e "console.log(JSON.stringify({version:process.version,execPath:process.execPath})); if (process.version !== 'v22.23.4') process.exit(1)"
       - run: npm --prefix apps/download-site ci
       - run: npm --prefix apps/download-site test
       - run: npm --prefix apps/download-site run lint
@@ -52,8 +55,11 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: '22.23.4'
           cache: npm
+      - name: Verify patched Node runtime
+        run: >-
+          node -e "console.log(JSON.stringify({version:process.version,execPath:process.execPath})); if (process.version !== 'v22.23.4') process.exit(1)"
       - name: Install media probe
         run: |
           sudo apt-get update
@@ -79,8 +85,11 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: '22.23.4'
           cache: npm
+      - name: Verify patched Node runtime
+        run: >-
+          node -e "console.log(JSON.stringify({version:process.version,execPath:process.execPath})); if (process.version !== 'v22.23.4') process.exit(1)"
       - name: Install media probe
         shell: pwsh
         run: |
