@@ -1,6 +1,6 @@
 # 継手 / Tsugite v2
 
-手元の動画をエージェントと準備し、計画・素材・できあがりを人が確認する道具です。**2.0.0-alpha.5は開発途中の配布版**です。実課金受入・第三者試用は完了していません。
+手元の動画をエージェントと準備し、計画・素材・できあがりを人が確認する道具です。**2.0.0-alpha.5は開発途中の配布版**です。ElevenLabs の SFX は実課金 1 件を記録済みです。PixVerse、Kling、TopView は API キーではなく、各サービスの CLI にログインした状態で使います。対応は順次で、実機確認と第三者試用は完了していません。リポジトリの入口は [ルートの README](../README.ja.md) です。
 
 ## はじめての方はこちら
 
@@ -45,3 +45,4 @@ node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs export --project ./my-
 - [第三者試用キット](docs/onboarding/trial-kit.ja.md)
 - [プラグインとライセンス](docs/plugins.md)
 - [alpha.5の配布範囲](docs/release-alpha5.md)
+- [物語・構成の相談](docs/story-consult.ja.md)。`plugin story consult` は git の作業ツリーでも npm の配布物でも動きます。読むのは同梱の `knowledge/story-frameworks/catalog.yaml` だけです。

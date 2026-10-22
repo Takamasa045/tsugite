@@ -19,9 +19,14 @@ quality or time gains over a normal AI request have not been established.
 The six-second sample below checks installation.
 
 **Local alpha:** sound, captions, local editing, optional Remotion rendering and
-source-plugin mocks work. Documented HTTP transports have synthetic fixture tests; live paid acceptance and the broader
-v1 feature set are still tracked in [requirements](docs/requirements.md). This
+source-plugin mocks work. Documented HTTP transports have synthetic fixture tests.
+ElevenLabs SFX has one recorded paid acceptance. PixVerse, Kling, and TopView
+are used through each service's CLI while that subscription is already logged
+in. Support arrives in order. An API key in settings is not that connection.
+The real-machine check and the broader v1 feature set are tracked in
+[requirements](docs/requirements.md). This
 package is not published to the npm registry. Existing v1 productions continue unchanged.
+The repository entry for new work is the [root README](../README.md).
 
 Download the alpha tarball and SHA256SUMS from the [source-only alpha release](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.5). This release uploads no demo videos or images.
 Install without cloning or replacing your global tools:
@@ -163,7 +168,9 @@ See [architecture](docs/architecture.md) for recovery and trust limits,
 [plugin SDK and license guidance](docs/plugins.md), the exhaustive
 [requirement tracker](docs/requirements.md) for remaining work, and the
 owner-facing [v1→v2 migration decision record](docs/migration-plan.ja.md)
-(2026-10-19: recommended split adopted; paid acceptance last).
+(2026-10-19: recommended split adopted; paid acceptance last.
+2026-10-22: PixVerse formal acceptance is a subscription-CLI real-machine check,
+not an API-key paid call). English copy: [migration-plan.md](docs/migration-plan.md).
 
 ```sh
 cd /path/to/tsugite/v2

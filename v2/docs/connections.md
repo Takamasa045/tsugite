@@ -1,5 +1,14 @@
 # Explicit service connections
 
+PixVerse, Kling, and TopView are not connected by writing an API key into
+project settings. The intended use is each service's CLI while that
+subscription is already logged in. Support arrives in order. Another change is
+implementing that path. This page does not add a login command, and the JSON
+below is the current HTTP transport used by synthetic tests. It is not the
+formal 2.0.0 acceptance method. That method is the subscription-CLI
+real-machine check in [requirements](requirements.md). ElevenLabs is outside
+this CLI policy.
+
 Offline and mock mode require no account. `execution: live` is a separate,
 explicit selection. Install a reviewed source package, choose the API origin,
 credential environment-variable name and download origins in your private
