@@ -1,5 +1,6 @@
-import {test} from 'node:test';import assert from 'node:assert/strict';import mock from './mock.mjs';import live,{request,normalize,normalizeCli,reconcile} from './index.mjs';
-import {buildPixverseCliArgs} from './cli.mjs';
+import {test} from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs/promises';import os from 'node:os';import path from 'node:path';import mock from './mock.mjs';import live,{request,normalize,normalizeCli,reconcile} from './index.mjs';
+import {buildPixverseCliArgs,createCli} from './cli.mjs';
+import {runCommand} from './cli-run.mjs';
 const task={prompt:'synthetic contract fixture',seconds:5,kind:'video',options:{}};
 test('mock quote and fail-closed live entry',async()=>{assert.equal(mock.quote(task).credits,0);assert.equal(mock.quote(task).mock,true);await assert.rejects(live.make(),/disabled/);});
 test('unknown receipts never imply refunds',()=>{assert.equal(reconcile({provider_job_id:'fixture',status:'failed'}).releaseReservation,false);assert.equal(reconcile({provider_job_id:'fixture',status:'failed',credits_charged:0}).releaseReservation,true);});
@@ -45,7 +46,36 @@ test('request, payload and quote reject invalid estimates without a provider cal
   assert.equal(normalizeCli({...task,options:{model:'pixverse-c1'}}).options.model,'pixverse-c1');
   assert.throws(()=>normalizeCli({...task,options:{model:'../nope'}}),/CLI model/);
   const imageArgs=buildPixverseCliArgs({...task,options:{mode:'image',model:'v6',quality:'360p',aspect:'9:16'}},'task-key',['/tmp/a.png']);
+  assert.equal(imageArgs[0],'create');
+  assert.equal(imageArgs[1],'video');
   assert.ok(imageArgs.includes('--image')&&imageArgs.includes('/tmp/a.png'));
   assert.equal(imageArgs.includes('--aspect-ratio'),false);
   assert.ok(imageArgs.includes('--no-wait')&&imageArgs.includes('--idempotency-key'));
+});
+test('extend keeps the new tail and CLI errors do not repeat secrets', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'tsugite-pixverse-extend-'));
+  const output = path.join(dir, 'out.mp4');
+  let kept = null;
+  const cli = createCli({
+    command: ['pixverse'],
+    invoke: async args => {
+      if (args[0] === 'auth') return {authenticated: true};
+      if (args[0] === 'create') { assert.equal(args[1], 'extend'); return {video_id: 'job-1'}; }
+      if (args[0] === 'task') return {};
+      await fs.writeFile(path.join(args[args.indexOf('--dest') + 1], 'clip.mp4'), 'video-bytes');
+      return {};
+    },
+    keepTail: async (file, seconds) => { kept = {file, seconds}; }
+  });
+  await cli.make({task: {prompt: 'continue', seconds: 5, options: {mode: 'extend', model: 'v6'}}, output, inputs: ['/tmp/source.mp4'], idempotencyKey: 'k', onSubmitted: async () => {}});
+  assert.equal(kept.file, output);
+  assert.equal(kept.seconds, 5);
+  assert.equal(await fs.readFile(output, 'utf8'), 'video-bytes');
+  await fs.rm(dir, {recursive: true, force: true});
+  await assert.rejects(runCommand([process.execPath, '-e', 'process.stderr.write("token=synthetic-review-token\\n"); process.exit(1)'], []), error => {
+    assert.match(error.message, /\[redacted\]/);
+    assert.equal(error.message.includes('synthetic-review-token'), false);
+    assert.equal(String(error.stderr).includes('synthetic-review-token'), false);
+    return true;
+  });
 });

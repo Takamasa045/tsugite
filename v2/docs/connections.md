@@ -86,9 +86,12 @@ command is not a charge.
 - PixVerse: `pixverse` (`PIXVERSE_CLI` overrides the path). Login is
   `pixverse auth status --json` with `authenticated: true`. Exit 3 or
   `authenticated: false` means logged out; run `pixverse auth login`. Generation
-  is `pixverse create` (`video`, `image`, `transition`, `extend`, `modify`,
-  `upscale`, `reference`) with `--no-wait --json`, then `task wait` and
-  `asset download`. The quote is the explicit positive `max_credits`, not the
+  is `pixverse create` with `--no-wait --json`, then `task wait` and
+  `asset download`. Text and image-to-video both use `create video`;
+  image-to-video adds `--image`. `create image` is not used for video.
+  The other operations are `transition`, `extend`, `modify`, `upscale`, and
+  `reference`. An extend result that still contains the source is trimmed to
+  the new tail, the same as the HTTP path. The quote is the explicit positive `max_credits`, not the
   dated V6 rate table. The CLI model string is passed through when it matches
   a safe token; the HTTP transport still requires `v6`.
 - Kling: `kling` (`KLING_CLI` overrides the path). Login is `kling who_am_i`

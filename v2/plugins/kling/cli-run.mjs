@@ -11,6 +11,9 @@ export function commandList(command, fallback) {
   return list;
 }
 
+function redact(text) {
+  return String(text || '').replace(/\b(api[_-]?key|token|authorization|secret)\b[^\n]*/gi, '[redacted]').trim().slice(0, 500);
+}
 export async function runCommand(command, args, {timeout = 30000} = {}) {
   try {
     return await exec(command[0], [...command.slice(1), ...args], {encoding: 'utf8', timeout, windowsHide: true, maxBuffer: 1024 * 1024 * 8});
@@ -20,8 +23,14 @@ export async function runCommand(command, args, {timeout = 30000} = {}) {
       missing.code = 'ENOENT';
       throw missing;
     }
-    error.outputText = `${error.stderr || ''}\n${error.stdout || ''}`.replace(/\b(api[_-]?key|token|authorization|secret)\b[^\n]*/gi, '[redacted]').trim().slice(0, 500);
-    throw error;
+    const stdout = redact(error.stdout);
+    const stderr = redact(error.stderr);
+    const safe = new Error([stderr, stdout].filter(Boolean).join('\n') || 'CLI command failed');
+    safe.code = error.code;
+    safe.stdout = stdout;
+    safe.stderr = stderr;
+    safe.outputText = safe.message;
+    throw safe;
   }
 }
 

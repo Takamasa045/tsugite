@@ -1,13 +1,14 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import {keepExtension} from './transport.mjs';
 import {commandList, knownCredits, providerJobId, runJson} from './cli-run.mjs';
 
 const GENERATE = new Set(['text', 'image', 'transition', 'extend', 'reference']);
 
 export function buildPixverseCliArgs(task, idempotencyKey, inputs = []) {
   const mode = task.options?.mode ?? 'text';
-  const operation = mode === 'text' ? 'video' : mode;
+  const operation = mode === 'text' || mode === 'image' ? 'video' : mode;
   if (!['video', 'image', 'transition', 'extend', 'upscale', 'modify', 'reference'].includes(operation)) throw new Error('Unsupported PixVerse CLI mode');
   const options = task.options ?? {};
   const args = ['create', operation];
@@ -61,7 +62,7 @@ async function placeVideo(directory, output) {
   await fs.writeFile(output, await fs.readFile(path.join(directory, files[0])), {flag: 'wx'});
 }
 
-export function createCli({command = null, invoke = null} = {}) {
+export function createCli({command = null, invoke = null, keepTail = keepExtension} = {}) {
   const executable = commandList(command, defaultCommand());
   const call = invoke ?? (async (args, timeout) => runJson(executable, args, {timeout}));
   return {async make({task, output, inputs = [], idempotencyKey, onSubmitted}) {
@@ -77,6 +78,7 @@ export function createCli({command = null, invoke = null} = {}) {
       await call(['asset', 'download', id, '--type', 'video', '--dest', directory, '--json'], 180000);
       await placeVideo(directory, output);
     } finally { await fs.rm(directory, {recursive: true, force: true}); }
+    if ((task.options?.mode ?? 'text') === 'extend') await keepTail(output, task.seconds);
     const charged = knownCredits(waited);
     return {providerJobId: id, credits: charged === null ? knownCredits(created) : charged};
   }};
