@@ -9,6 +9,7 @@ import { taste } from './taste.mjs';
 import {inputClips,sourceInputs,audioTracks,captions,arrange} from './timeline.mjs';
 import { sample, probe, command } from '../plugins/local/index.mjs';
 import { normalizeLanguage } from './i18n.mjs';
+import { projectStory, reconfirmAgainst } from './story.mjs';
 
 const stateFile = '.tsugite/state.json';
 const initialState = { version: 1, ledger: { entries: [] }, jobs: {}, renders: {}, events: [] };
@@ -22,7 +23,7 @@ export async function config(root) {
   const bytes = await read(root, 'tsugite.yaml');
   const c = parse(bytes, { maxAliasCount: 0 });
   if (!c || typeof c !== 'object' || Array.isArray(c)) fail('Invalid tsugite.yaml');
-  const allowed = ['version','name','format','length','use','make','export','budget','checks','knowledge','audio','captions','caption_mode','execution','fps','renderer_options','lang'];
+  const allowed = ['version','name','format','length','use','make','export','budget','checks','knowledge','audio','captions','caption_mode','execution','fps','renderer_options','lang','story'];
   for (const key of Object.keys(c)) if (!allowed.includes(key)) fail('Unknown project field: ' + key);
   if (c.lang !== undefined) {
     const language = normalizeLanguage(c.lang);
@@ -53,6 +54,7 @@ export async function config(root) {
   }
   for (const f of c.use) { const media=typeof f==='string'?f:f?.path;if(typeof media!=='string'||!media.startsWith('assets/'))fail('Inputs must be inside assets/');await inside(root,media); }
   for (const f of c.knowledge) { if (typeof f !== 'string' || !f.endsWith('.md')) fail('Knowledge packs must be Markdown paths'); await inside(root, f); }
+  if (c.story !== undefined) { if (typeof c.story !== 'string' || !c.story.endsWith('.json')) fail('Story plan must be a JSON path'); await inside(root, c.story); }
   return { c, configHash: hash(bytes) };
 }
 async function buildPlan(root) {
@@ -90,7 +92,8 @@ async function buildPlan(root) {
   }
   const knowledge = [];
   for (const file of c.knowledge) knowledge.push({ path: file, text: await read(root, file) });
-  const plan = { version: 2, configHash, name: c.name, format: c.format, seconds: c.length, renderer: c.export, execution:c.execution??'offline',plugins, inputs, tasks, timeline: { version: 1, format: c.format, seconds: c.length,fps:c.fps??24, clips,audio,captions:subtitle.entries },subtitleSource:subtitle.source, budget: c.budget, checks: c.checks ?? {}, taste: await taste(root), knowledge };
+  const story = c.story ? await projectStory(root, c.story, { seconds: c.length, clipIds: clips.map(clip => clip.id), taskIds: tasks.map(task => task.id) }) : null;
+  const plan = { version: 2, configHash, name: c.name, format: c.format, seconds: c.length, renderer: c.export, execution:c.execution??'offline',plugins, inputs, tasks, timeline: { version: 1, format: c.format, seconds: c.length,fps:c.fps??24, clips,audio,captions:subtitle.entries },subtitleSource:subtitle.source, budget: c.budget, checks: c.checks ?? {}, taste: await taste(root), knowledge, story };
   plan.timeline.captionMode=c.caption_mode??'soft';
   if(c.renderer_options!==undefined){if(!renderer.implementation.supportsOptions)fail('Renderer does not accept renderer_options');plan.timeline.rendererOptions=structuredClone(c.renderer_options);}
   if(renderer.implementation.validate)await renderer.implementation.validate(plan.timeline);
@@ -103,6 +106,13 @@ export async function plan(root) {
     const value = await buildPlan(root);
     let previous;
     try { previous = await read(root,'.tsugite/plan.json'); } catch(e) { if(e.code!=='ENOENT') throw e; }
+    const previousPlan = previous ? JSON.parse(previous) : null;
+    const existing = await readJSON(root, '.tsugite/story-reconfirm.json', null);
+    const storyHash = value.story?.source_hash ?? null;
+    let targets = [];
+    if (previousPlan?.story && value.story && previousPlan.story.source_hash !== storyHash) targets = reconfirmAgainst(previousPlan.story, value.story);
+    else if (existing && existing.storyDigest === storyHash) targets = existing.targets ?? [];
+    await write(root, '.tsugite/story-reconfirm.json', { storyDigest: storyHash, targets });
     if (previous !== undefined && previous !== json(value)) {
       // Preserve superseded records and never revive approval by reverting files.
       for (const stage of ['plan','clips','final']) {
@@ -116,7 +126,7 @@ export async function plan(root) {
     await write(root, '.tsugite/plan.json', value);
     const digest = hash(json(value));
     await write(root, `.tsugite/plans/${digest}.json`, value);
-    return { plan: value, digest, waitingFor: 'plan check', review: 'Use tsugite plan to start the confirmation page; add --open to open it in a browser' };
+    return { plan: value, digest, waitingFor: 'plan check', storyReconfirm: targets, review: 'Use tsugite plan to start the confirmation page; add --open to open it in a browser' };
   });
 }
 export async function currentPlan(root) {

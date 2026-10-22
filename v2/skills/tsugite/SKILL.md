@@ -66,6 +66,13 @@ a libass-enabled FFmpeg. Optional Remotion needs its tested peers and an existin
 browser, with runtime identity bound to the plan. No browser is downloaded.
 Use `plugin analyze` for zero-credit local Whisper or Fast Edit proposals; never
 treat a proposal or mock transcript as an applied/approved final edit.
+Story structure can be discussed before media exists. `plugin story consult --request "..."`
+needs no image, API key, FFmpeg, or confirmation-page approval, and it does not generate
+or send anything. Keep unknown song timing unknown. `plugin story check` validates ids,
+durations and references only. `plugin story bind` stores the authored plan for the next
+`plan` hash. A story change requires a new human plan check and lists shots to recheck.
+It does not regenerate media or approve anything. See [story consult](../../docs/story-consult.ja.md).
+
 Use `init --pack` / `init --template` for timing templates, `plugin knowledge` for
 local guide snapshots, and `plugin skill --to` for explicit client installation.
 Uncertain reservations may be reconciled only by the human's page action after

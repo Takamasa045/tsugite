@@ -4,7 +4,7 @@
     "product": "継手"
   },
   "cli": {
-    "help": "継手 / Tsugite v2 alpha\n使い方: tsugite <command> [--project directory] [--json] [--lang ja|en]\n\n  init <directory> [--from-v1 directory]   オフライン見本を作る、または v1 をコピーする\n  init <directory> --from-v1 dir --flatten file [--archive-v1]\n                                          最終映像をコピーし、旧データを安全に残す\n  init <directory> --template file        持ち運び用の尺枠に見本メディアを入れる\n  init --pack file                       メディアなしの尺テンプレートを書き出す\n  check [--status]                        環境 / いまの工程を確認する\n  plan [--no-review] [--open] [--no-open]  計画し、確認画面の URL を出す\n  make                                   計画承認のあとクリップを作る\n  export                                 クリップ承認のあと書き出す\n  note <text> [--group text] [--global]    非公開の好みメモを残す\n  note --pack file | --import file        好みパックの書き出し / 取り込み\n  clean                                  古い生成ファイルの整理プレビュー\n  plugin list | new <dir> --id <id> | add <local-package-dir>\n  plugin add <bundled-name|directory|archive.tgz|npm:package@exact-version>\n  plugin analyze <id> assets/input [--mock] [--model local-model] [--output assets/captions.srt]\n  plugin knowledge story|prompt-director|file.md\n  plugin skill --to <client-skills-directory>\n  plugin guide inspect | select assets/choice.json [--private-guide file.json]\n  plugin guide preview [--seconds 3] | review [assets/observations.json]\n\n通信: tsugite mcp（stdio、いまの案件だけ）\n確認は確認画面だけで承認します。CLI の承認フラグはありません。\nplan は --open を付けない限りブラウザを開きません。--no-open は非推奨で無視します。\nオフライン / mock はサービスアカウント不要。live は明示した非公開接続が必要です。\n",
+    "help": "継手 / Tsugite v2 alpha\n使い方: tsugite <command> [--project directory] [--json] [--lang ja|en]\n\n  init <directory> [--from-v1 directory]   オフライン見本を作る、または v1 をコピーする\n  init <directory> --from-v1 dir --flatten file [--archive-v1]\n                                          最終映像をコピーし、旧データを安全に残す\n  init <directory> --template file        持ち運び用の尺枠に見本メディアを入れる\n  init --pack file                       メディアなしの尺テンプレートを書き出す\n  check [--status]                        環境 / いまの工程を確認する\n  plan [--no-review] [--open] [--no-open]  計画し、確認画面の URL を出す\n  make                                   計画承認のあとクリップを作る\n  export                                 クリップ承認のあと書き出す\n  note <text> [--group text] [--global]    非公開の好みメモを残す\n  note --pack file | --import file        好みパックの書き出し / 取り込み\n  clean                                  古い生成ファイルの整理プレビュー\n  plugin list | new <dir> --id <id> | add <local-package-dir>\n  plugin add <bundled-name|directory|archive.tgz|npm:package@exact-version>\n  plugin analyze <id> assets/input [--mock] [--model local-model] [--output assets/captions.srt]\n  plugin knowledge story|prompt-director|file.md\n  plugin skill --to <client-skills-directory>\n  plugin guide inspect | select assets/choice.json [--private-guide file.json]\n  plugin guide preview [--seconds 3] | review [assets/observations.json]\n  plugin story consult --request \"...\" [--seconds N] [--entry idea|script|material|decided] [--output file.json]\n  plugin story check <file.json> | bind <file.json>\n\n通信: tsugite mcp（stdio、いまの案件だけ）\n確認は確認画面だけで承認します。CLI の承認フラグはありません。\nplan は --open を付けない限りブラウザを開きません。--no-open は非推奨で無視します。\nオフライン / mock はサービスアカウント不要。live は明示した非公開接続が必要です。\n",
     "path_notice": "確認画面: {url} （開くには --open）\n",
     "lang_unsupported": "未対応の言語です。ja または en を指定してください。",
     "lang_summary": "表示言語（ja または en）"
@@ -62,6 +62,17 @@
     "clean_help": "記録済みの古い生成メディアだけを案件のゴミ箱へ移します。原本と最終出力は残します。",
     "clean_button": "これらのファイルをゴミ箱へ移す",
     "footer": "この画面は誤承認を防ぐためのものです。同じ OS アカウントのエージェントは開けますし、ファイルも編集できます。セキュリティ境界ではありません。導入した plugin のコードを確認し、予算は控えめにしてください。",
-    "plan_digest": "計画 {digest}"
+    "plan_digest": "計画 {digest}",
+    "story_intent": "構成の狙い",
+    "story_none": "構成メモはありません。物語相談は素材・APIキー・FFmpeg・確認ページの承認を要求しません。",
+    "story_experience": "観客体験",
+    "story_frameworks": "採用した構成",
+    "story_beats": "意味のビートとショット",
+    "story_shots": "ショット",
+    "story_reconfirm": "構成変更後の再確認",
+    "story_reconfirm_note": "関係するショットと仕込みを見直します。素材は自動では作り直しません。",
+    "story_undecided": "未定",
+    "story_unknown": "不明",
+    "story_na": "適用外"
   }
 }

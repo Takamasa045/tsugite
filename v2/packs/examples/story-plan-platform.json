@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "catalog_revision": "2026-07-11.2",
+  "entry": "script",
+  "form": {
+    "id": "three-act",
+    "scope": "20秒。夜のホームで、去るか残るかを見せる"
+  },
+  "audience_experience": {
+    "status": "known",
+    "text": "呼んだ声で足が止まる瞬間を見る",
+    "source": "author"
+  },
+  "protected_elements": ["二人の距離", "台詞は短くする"],
+  "ending_intention": {
+    "status": "known",
+    "text": "終電を見送り、二人でホームに残る",
+    "source": "author"
+  },
+  "selected_frameworks": [
+    {
+      "id": "three-act",
+      "reason": "前提、選択、結果の三つの変化に収まるため"
+    }
+  ],
+  "beats": [
+    {
+      "id": "b-clock",
+      "purpose": { "status": "known", "text": "終電が近いことを見せる", "source": "author" },
+      "before": { "status": "known", "text": "Aは行くつもりで立っている", "source": "author" },
+      "visible_action": { "status": "known", "text": "Aが時計を見る", "source": "author" },
+      "after": { "status": "known", "text": "まだ乗れると知る", "source": "author" },
+      "caused_by": { "status": "not_applicable" },
+      "shot_refs": ["input-0"],
+      "lyric_refs": [],
+      "generation_refs": [],
+      "span": { "start": 0, "end": 6 }
+    },
+    {
+      "id": "b-call",
+      "purpose": { "status": "known", "text": "呼ばれて選択が始まる", "source": "author" },
+      "before": { "status": "known", "text": "Aは振り返らず歩き出している", "source": "author" },
+      "visible_action": { "status": "known", "text": "Bの「待って」でAが立ち止まる", "source": "author" },
+      "after": { "status": "known", "text": "行くのを一度やめる", "source": "author" },
+      "caused_by": { "status": "known", "text": "b-clock", "source": "author" },
+      "shot_refs": ["input-0"],
+      "lyric_refs": [],
+      "generation_refs": [],
+      "span": { "start": 6, "end": 14 }
+    },
+    {
+      "id": "b-stay",
+      "purpose": { "status": "known", "text": "残ることを画で示す", "source": "author" },
+      "before": { "status": "known", "text": "AはBの方を向く", "source": "author" },
+      "visible_action": { "status": "known", "text": "並んで電車を見送る", "source": "author" },
+      "after": { "status": "known", "text": "ホームに残る", "source": "author" },
+      "caused_by": { "status": "known", "text": "b-call", "source": "author" },
+      "shot_refs": ["input-0"],
+      "lyric_refs": [],
+      "generation_refs": [],
+      "span": { "start": 14, "end": 20 }
+    }
+  ],
+  "open_questions": ["電車の実音を使うかは未決"],
+  "modules": {
+    "character": {
+      "status": "used",
+      "choice": { "status": "known", "text": "終電に乗らず残る", "source": "author" },
+      "obstacle": { "status": "known", "text": "乗らないと予定に間に合わない", "source": "author" },
+      "cost": { "status": "known", "text": "予定を捨てる", "source": "author" },
+      "result": { "status": "known", "text": "二人でホームに残る", "source": "author" }
+    },
+    "disclosure": { "status": "not_applicable" },
+    "plants": [
+      {
+        "id": "p-clock",
+        "plant_beat": "b-clock",
+        "payoff_beat": "b-stay",
+        "status": "recovered"
+      },
+      {
+        "id": "p-letter",
+        "plant_beat": "b-clock",
+        "payoff_beat": null,
+        "status": "intentionally_unrecovered",
+        "reason": "ポケットの手紙は今回は開かず、謎のまま残す"
+      }
+    ]
+  },
+  "music": { "status": "not_applicable" }
+}

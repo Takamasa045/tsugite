@@ -26,7 +26,7 @@
     "test": "node --test tests/*.node.mjs plugins/*/test.mjs",
     "test:offline": "node scripts/offline-smoke.mjs",
     "test:extended": "node scripts/expanded-smoke.mjs",
-    "check": "node --check src/core.mjs && node --check src/review.mjs && node --check src/i18n.mjs && node --check src/cli.mjs && npm test",
+    "check": "node --check src/core.mjs && node --check src/review.mjs && node --check src/i18n.mjs && node --check src/cli.mjs && node --check src/story.mjs && npm test",
     "security:audit": "node ../scripts/offline-audit.mjs --omit=dev --audit-level=low"
   },
   "dependencies": {
