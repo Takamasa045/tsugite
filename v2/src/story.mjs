@@ -1,11 +1,10 @@
 import fs from 'node:fs/promises';
-import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse, stringify } from 'yaml';
 import { fail, hash, json, locked, read, write } from './files.mjs';
 
-// Reads the repository catalog as data. This module does not import v1 code,
-// call FFmpeg, send requests, or approve a check.
+// Reads the catalog shipped in this package. It does not import v1 code,
+// search parent directories, call FFmpeg, send requests, or approve a check.
 const DRAMA = new Set(['three-act', 'generalized-beat-sheet', 'hero-journey', 'freytag-pyramid', 'seven-point-story', 'story-circle', 'five-act-tv', 'documentary-character-quest']);
 const CTA = new Set(['hook-value-proof-cta', 'aida', 'problem-solution', 'pas', 'four-ps', 'before-after-bridge', 'golden-circle']);
 const DISCLOSURE = new Set(['mystery-question-clue-answer', 'tension-escalation-reveal', 'open-loop-reveal']);
@@ -39,17 +38,19 @@ export async function loadStoryCatalog() {
   return parsed;
 }
 
+function bundledStoryCatalogPath() {
+  return fileURLToPath(new URL('../knowledge/story-frameworks/catalog.yaml', import.meta.url));
+}
+
 async function catalogPath() {
   if (process.env.TSUGITE_STORY_CATALOG) return process.env.TSUGITE_STORY_CATALOG;
-  let dir = path.dirname(fileURLToPath(import.meta.url));
-  for (let i = 0; i < 8; i++) {
-    const candidate = path.join(dir, 'knowledge', 'story-frameworks', 'catalog.yaml');
-    try { await fs.access(candidate); return candidate; } catch { /* walk toward the repository root */ }
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
+  const bundled = bundledStoryCatalogPath();
+  try {
+    await fs.access(bundled);
+    return bundled;
+  } catch {
+    fail('Story catalog was not found. Expected knowledge/story-frameworks/catalog.yaml in this package');
   }
-  fail('Story catalog was not found. Expected knowledge/story-frameworks/catalog.yaml');
 }
 
 function exclusionTopics(request) {

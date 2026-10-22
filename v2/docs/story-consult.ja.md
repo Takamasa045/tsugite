@@ -2,7 +2,7 @@
 
 構成の相談は、画像・APIキー・FFmpeg・確認ページの承認がなくても始められます。ここでの結果は助言です。生成、外部送信、課金、Gate 承認は行いません。採用した構成メモを案件へ結んだあとで、いつもの `plan` が確認ページを開きます。
 
-カタログはリポジトリの `knowledge/story-frameworks/catalog.yaml` をデータとして読みます。v1 の選定コードは使いません。`ranking_weight` は候補の並び順であり、出来の確率ではありません。出典が空の項目は、カタログに出典がないという記録のままにします。
+カタログの正本はリポジトリの `knowledge/story-frameworks/catalog.yaml` です。配布する v2 は同じバイトの写しを `knowledge/story-frameworks/catalog.yaml` として同梱し、MIT のライセンスと出典を `knowledge/story-frameworks/NOTICE.md` に置きます。`plugin story consult` はこの同梱ファイルだけを読み、親ディレクトリは探しません。正本を更新したときは `node v2/scripts/sync-story-catalog.mjs` で写しと NOTICE を更新します。v1 の選定コードは使いません。`ranking_weight` は候補の並び順であり、出来の確率ではありません。出典が空の項目は、カタログに出典がないという記録のままにします。
 
 ## 入口
 

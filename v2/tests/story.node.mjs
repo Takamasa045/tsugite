@@ -1,15 +1,21 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
+import { unpack } from '../src/acquire.mjs';
 import { main } from '../src/cli.mjs';
 import { plan, make } from '../src/core.mjs';
 import { read, write } from '../src/files.mjs';
 import { consult, loadStoryCatalog, validateStoryPlan, checkStoryFile, bindStory } from '../src/story.mjs';
+import { storyCatalogNotice, storyCatalogPaths } from '../scripts/sync-story-catalog.mjs';
 import { parse } from 'yaml';
 import { fixture, settings, page } from './helpers.mjs';
+
+const run = promisify(execFile);
 
 const samplePath = fileURLToPath(new URL('../packs/examples/story-plan-platform.json', import.meta.url));
 const quietRequest = '60秒の静かな自然映像。ドラマ・CTA不要';
@@ -204,5 +210,120 @@ test('the worked example and request guide stay machine-checkable', async t => {
   assert.equal(checked.meaning_review, 'not_automated');
   assert.equal(checked.generated, false);
   const doc = await fs.readFile(fileURLToPath(new URL('../docs/story-consult.ja.md', import.meta.url)), 'utf8');
-  for (const marker of ['初稿', '診断', '改稿', 'ショット対応', 'intentionally', '60秒の静かな自然映像', '曲はまだ聴いていない', '民話', '採用した構成メモ']) assert.match(doc, new RegExp(marker));
+  for (const marker of ['初稿', '診断', '改稿', 'ショット対応', 'intentionally', '60秒の静かな自然映像', '曲はまだ聴いていない', '民話', '採用した構成メモ', 'NOTICE.md', '同梱']) assert.match(doc, new RegExp(marker));
+  const skill = (await fs.readFile(fileURLToPath(new URL('../skills/tsugite/SKILL.md', import.meta.url)), 'utf8')).replaceAll('\r\n', '\n').replaceAll('\n', ' ');
+  assert.match(skill, /catalog shipped in this package/);
+  assert.match(skill, /does not search a parent repository/);
 });
+
+test('the shipped story catalog matches the repository catalog and carries license and sources', async () => {
+  const canonical = await fs.readFile(storyCatalogPaths.canonical);
+  const bundled = await fs.readFile(storyCatalogPaths.bundled);
+  assert.deepEqual(bundled, canonical);
+  const normalize = value => value.replaceAll('\r\n', '\n');
+  const canonicalText = normalize(canonical.toString('utf8'));
+  const license = normalize(await fs.readFile(storyCatalogPaths.license, 'utf8'));
+  const notice = normalize(await fs.readFile(storyCatalogPaths.notice, 'utf8'));
+  assert.equal(notice, storyCatalogNotice(canonicalText, license));
+  const catalog = parse(canonicalText);
+  for (const source of catalog.sources) {
+    assert.match(notice, new RegExp(source.url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.ok(notice.includes(source.title));
+    assert.ok(notice.includes(source.publisher));
+  }
+  assert.match(notice, /MIT License/);
+  assert.match(notice, /Permission is hereby granted/);
+  assert.match(notice, /source_ids/);
+});
+
+test('story consult works from an npm pack extracted outside the repository', async t => {
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), 'tsugite-story-pack-'));
+  t.after(() => fs.rm(parent, { recursive: true, force: true }));
+  const repoRoot = await fs.realpath(path.resolve(storyCatalogPaths.canonical, '../../..'));
+  const resolvedParent = await fs.realpath(parent);
+  assert.equal(resolvedParent === repoRoot || resolvedParent.startsWith(repoRoot + path.sep), false);
+  const packDir = path.join(parent, 'pack');
+  const extracted = path.join(parent, 'package');
+  const work = path.join(parent, 'work');
+  await fs.mkdir(packDir);
+  await fs.mkdir(extracted);
+  await fs.mkdir(work);
+  const v2Root = path.resolve(storyCatalogPaths.bundled, '../../..');
+  const command = npmPackCommand(packDir);
+  const packed = await run(command.program, command.args, {
+    cwd: v2Root,
+    env: packEnv(),
+    timeout: 120000,
+    maxBuffer: 10_000_000,
+    windowsHide: true
+  });
+  const metadata = JSON.parse(packed.stdout);
+  assert.equal(metadata.length, 1);
+  const filename = metadata[0].filename;
+  assert.equal(path.basename(filename), filename);
+  const listed = new Set((metadata[0].files ?? []).map(file => file.path));
+  for (const shipped of [
+    'knowledge/story-frameworks/catalog.yaml',
+    'knowledge/story-frameworks/NOTICE.md',
+    'LICENSE'
+  ]) assert.equal(listed.has(shipped), true, shipped);
+  await unpack(await fs.readFile(path.join(packDir, filename)), extracted);
+  const shippedCatalog = await fs.readFile(path.join(extracted, 'knowledge', 'story-frameworks', 'catalog.yaml'));
+  const shippedNotice = await fs.readFile(path.join(extracted, 'knowledge', 'story-frameworks', 'NOTICE.md'), 'utf8');
+  const shippedLicense = await fs.readFile(path.join(extracted, 'LICENSE'), 'utf8');
+  assert.deepEqual(shippedCatalog, await fs.readFile(storyCatalogPaths.canonical));
+  assert.equal(shippedNotice, await fs.readFile(storyCatalogPaths.notice, 'utf8'));
+  assert.match(shippedLicense, /MIT License/);
+  await fs.cp(path.join(v2Root, 'node_modules', 'yaml'), path.join(extracted, 'node_modules', 'yaml'), { recursive: true, dereference: true });
+  const cli = path.join(extracted, 'bin', 'tsugite.mjs');
+  const env = packEnv();
+  env.TSUGITE_HOME = path.join(parent, 'home');
+  const consulted = await run(process.execPath, [cli, 'plugin', 'story', 'consult', '--request', quietRequest, '--seconds', '60'], {
+    cwd: work,
+    env,
+    timeout: 30000,
+    maxBuffer: 10_000_000,
+    windowsHide: true
+  });
+  const payload = JSON.parse(consulted.stdout);
+  assert.equal(payload.ok, true);
+  assert.equal(payload.result.generated, false);
+  assert.equal(payload.result.approval, 'not-requested');
+  assert.equal(payload.result.external_send, false);
+  assert.equal(payload.result.recommendation.primary.id, 'jo-ha-kyu');
+  assert.deepEqual(await fs.readdir(work), []);
+  await fs.mkdir(path.join(parent, 'knowledge', 'story-frameworks'), { recursive: true });
+  await fs.copyFile(storyCatalogPaths.canonical, path.join(parent, 'knowledge', 'story-frameworks', 'catalog.yaml'));
+  await fs.rm(path.join(extracted, 'knowledge', 'story-frameworks', 'catalog.yaml'));
+  await assert.rejects(
+    run(process.execPath, [cli, 'plugin', 'story', 'consult', '--request', quietRequest, '--seconds', '60'], {
+      cwd: work,
+      env,
+      timeout: 30000,
+      maxBuffer: 10_000_000,
+      windowsHide: true
+    }),
+    error => {
+      assert.equal(error.code, 1);
+      assert.match(String(error.stderr), /Story catalog was not found/);
+      return true;
+    }
+  );
+});
+
+function packEnv() {
+  const env = { ...process.env, npm_config_ignore_scripts: 'true', npm_config_update_notifier: 'false', npm_config_audit: 'false', npm_config_fund: 'false' };
+  delete env.TSUGITE_STORY_CATALOG;
+  delete env.NODE_PATH;
+  return env;
+}
+
+function npmPackCommand(destination) {
+  const args = ['pack', '--ignore-scripts', '--json', '--offline', '--pack-destination', destination];
+  const cli = process.env.npm_execpath;
+  if (cli && path.isAbsolute(cli)) return { program: process.execPath, args: [cli, ...args] };
+  if (process.platform === 'win32') {
+    return { program: process.execPath, args: [path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js'), ...args] };
+  }
+  return { program: 'npm', args };
+}
