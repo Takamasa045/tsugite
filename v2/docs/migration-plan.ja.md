@@ -9,11 +9,13 @@
 - 段階1・段階3の準備（試用キットと issue 草稿）は、金を使わず進めてよい。確認ページ・予算・秘密情報の扱いを緩くしない。
 - 版番号の繰り上げ、npm 公開、`projects/` の変更、有料 API、GitHub issue の作成は、この決定に含まれない。
 
-いまの位置：
+いまの位置（2026-10-22）：
 
-- いまの制作の正本は **v1 0.18.0**（`project.yaml` の案件）。
-- 試用用の独立配布は **v2 2.0.0-alpha.5**（`tsugite.yaml`）。実課金の受け入れ確認と、第三者3人の初回試用はまだ完了していません。
-- 段階2が終わるまで、合成テストを有料受け入れ完了としない。
+- いまの制作の正本は **v1 0.18.0**（`project.yaml` の案件）。v1 は保守として残る。新しい制作の案内は v2 を入口にする。版番号は上げていない。
+- 試用用の独立配布は **v2 2.0.0-alpha.5**（`tsugite.yaml`）。正式版 2.0.0 の判定は、この文書の末尾を正とする。
+- ElevenLabs の SFX は、実課金 1 件（2秒）を受け入れ済みとする。音声と music は未了。
+- PixVerse・Kling・TopView は、API キーを設定に書く方式ではつながない。各サービスの CLI で、サブスクリプションにログインした状態で使う。対応は順次で、その実機確認は未了。
+- 第三者3人の初回試用は未了。合成テストだけでは有料受け入れも実機確認も完了にしない。
 
 案件名は書いていません。件数は所有者提供の集計です。
 
@@ -31,7 +33,7 @@
 | 4. 既定をv2へ切り替える | 要件 **M07**（新しい制作をv2から始める）、**M02**（v1保守の置き場所）、**S05**（fork利用者への案内）、**D08**（メンテナの実名）と、版 **2.0.0**。段階3のalphaゲートだけでは M06 全体を満たさないため、残りのフェーズゲートを進めるか見送るかを所有者が決める | 新しい案件の案内がv2を既定にする。v1の残し方が文書化される。2.0.0の公開範囲が所有者の指定どおり。M06の残りの扱いが文書化される | **必須。** 既定の切り替えと 2.0.0 は所有者の明示承認があるまで行わない |
 | 5. v1を畳む | 要件 **P15**（実験部品の置き場所）、**S02**〜**S04**（公開後の本数・外部プラグイン・月次更新） | 実験部品の行き先が決まる。v1停止の時期と、残すもの（既存案件の完走など）が文書化される。公開後の目標は「公開してから測る」ものであり、この段階の開始条件ではない | **必須。** v1の停止・移動・外部通知は所有者の明示承認があるまで行わない |
 
-いまのalphaを「正式なv2」や「制作の既定」にはしません。段階4の承認があるまで、既存の `project.yaml` 案件はv1で続けます。
+いまのalphaを「正式なv2」や「制作の既定」にはしません。段階4の承認があるまで、既存の `project.yaml` 案件はv1で続けます。段階2の表のうち、PixVerse の完了条件は下の 2026-10-22 の補足が優先します。API キーでの有料受け入れは、正式版の条件から外しています。
 
 段階3の3人試用は、M06が求める「各フェーズの独立ユーザーゲート」の**いまのalpha分**です。4フェーズ・14週間の全体を段階3で完了扱いしません。段階4へ進む前に、所有者が残りのフェーズゲートをどう扱うかを決めます。
 
@@ -45,13 +47,13 @@
 | --- | --- | --- | --- | --- | --- |
 | Remotion（標準の動画組み立て） | 62 | 任意プラグインあり。実機での書き出し証拠あり。確認ページを通る。静止画の保持は段階1で追加 | **v2 で対応** | 件数が最も多い。v2に実書き出し経路がある | [`v2/plugins/remotion`](../plugins/remotion/constraints.md)、[要件 P06](requirements.md) |
 | Remotionの案件専用モーション・キャラ構成 | （上の62件に含まれる） | `init --from-v1` は受け付けない。完成動画のコピー（`--flatten`）か、元データの保管（`--archive-v1`）だけ | **v1 に残す** | 構成グラフをv2へ直に移す機能はない。無理に変換すると編集できなくなる | [`v2/src/migrate.mjs`](../src/migrate.mjs)、[移行手順](phase-two.md#copying-a-complex-v1-project) |
-| PixVerse | 20 | V6 の text / image-to-video / transition のHTTP経路と合成テストあり。**実課金の受け入れは未了**。実験枠 | **v2 で対応** | 件数が多い。段階2の有料確認の主対象 | [`v2/plugins/pixverse`](../plugins/pixverse/constraints.md)、[要件 P08](requirements.md) |
-| ElevenLabs | 14 | 公式モデルと voice_settings 付き音声HTTP経路と合成テストあり。**実課金の受け入れは未了**。実験枠 | **v2 で対応** | 件数が多い。段階2の有料確認の主対象 | [`v2/plugins/elevenlabs`](../plugins/elevenlabs/constraints.md)、[要件 P10](requirements.md) |
+| PixVerse | 20 | V6 の text / image-to-video / transition / extend / upscale / modify / 画像 Fusion のHTTP経路と合成テストあり。**API キーでの有料受け入れは正式版の条件にしない。** サブスク CLI での実生成と通し書き出しは未了 | **v2 で対応** | 件数が多い。正式版では CLI ログイン状態の実機確認が対象 | [`v2/plugins/pixverse`](../plugins/pixverse/constraints.md)、[要件 P08](requirements.md) |
+| ElevenLabs | 14 | 公式モデル、voice_settings、music、SFX のHTTP経路と合成テストあり。**SFX の実課金受け入れは 1 件済み**（2秒。明示 `credits: null` は成果物成功と予約維持）。音声と music は未了 | **v2 で対応** | 件数が多い。SFX 以外の実課金は段階2のまま | [`v2/plugins/elevenlabs`](../plugins/elevenlabs/constraints.md)、[要件 P10](requirements.md) |
 | HyperFrames | 8 | v2側は **0.8.173** 固定の実験プラグイン。実機の音・字幕書き出し証拠は旧版0.8.24で取得。v1本体も **0.8.173** 固定 | **実験枠（labs）のまま** | 版はv1と揃ったが、0.8.173での実機書き出し証拠を取り直す必要がある | [`v2/plugins/hyperframes`](../plugins/hyperframes/constraints.md)、v1は root `package.json` の 0.8.173 |
 | MiniMax | 8 | v2の実行プラグインはない。v1由来の実験ソースとして分離済み | **実験枠（labs）のまま** | 件数はあるが、v2に実行経路がない。段階1で無理に新プラグインを増やさない | [実験枠の一覧](../labs/README.md)、[要件 P13](requirements.md) |
 | Editframe | 6 | v2の実行プラグインはない。v1の任意ランタイム。配布tarballには入れていない | **実験枠（labs）のまま** | 未解決のHigh依存アラートがある。v2配布物からは外してある | [alpha.5配布](release-alpha5.md) の GitHub Dependabot [#131](https://github.com/Takamasa045/tsugite/security/dependabot/131)、[実験枠の一覧](../labs/README.md) |
 | Hypit | 3 | v2のレンダラーではない。v1の制作入口を実験ソースとして分離 | **実験枠（labs）のまま** | 件数が少なく、v2の書き出し器ではない | [実験枠の一覧](../labs/README.md)、[要件 P13](requirements.md) |
-| Kling | 2 | PixVerseと同じくHTTP経路と合成テストあり。**実課金の受け入れは未了**。実験枠 | **実験枠（labs）のまま** | 件数が少ない。段階2でPixVerseと同時に試すかは所有者が選ぶ（要件P08は両方を含む） | [`v2/plugins/kling`](../plugins/kling/constraints.md)、[要件 P08](requirements.md) |
+| Kling | 2 | text のHTTP経路と合成テストあり。つなぎ方は API キーではなく CLI のログイン状態。対応は順次で、実機確認は未了。実験枠 | **実験枠（labs）のまま** | 件数が少ない。PixVerse と同じ接続方針。同時に試すかは所有者が選ぶ | [`v2/plugins/kling`](../plugins/kling/constraints.md)、[要件 P08](requirements.md) |
 | Tesseract | 2 | v2の実行プラグインはない。v1の任意レンダラーを実験ソースとして分離 | **実験枠（labs）のまま** | 件数が少なく、v2既定に載せる根拠が弱い | [実験枠の一覧](../labs/README.md)、[要件 P13](requirements.md) |
 | Fast Edit | （v2で対応済み） | 18カードの判定と実フレーム書き出しあり。v1のFast Editからのコピーも可 | 差なし（既にv2） | 追加の移行判断は不要 | [`v2/plugins/fast-edit`](../plugins/fast-edit/constraints.md)、[要件 P11](requirements.md) |
 | Whisper | （v2で対応済み） | 手元のwhisper.cppと既存モデルでの文字起こし証拠あり。実験枠ラベルだが実装済み | 差なし（既にv2） | 追加の移行判断は不要 | [`v2/plugins/whisper`](../plugins/whisper/constraints.md)、[要件 P09](requirements.md) |
@@ -81,11 +83,30 @@
 | 対象 | 埋めた差 | 残っている差 |
 | --- | --- | --- |
 | Remotion（標準組み立て） | 静止画（PNG/JPEG/WebP、明示秒数）を local と同じタイムラインで保持。live は拡張子を保って `Img` に渡す。案件専用モーション・キャラは対象外のまま | 案件専用プリセット/モーション/キャラは **v1 に残す**。cover fit やクリップ間トランジションは未実装。実機 Remotion 書き出しは既存どおり任意ランタイム |
-| PixVerse | `make.inputs` で計画に束縛したローカル静止画。V6 の image-to-video と first/last-frame transition を公式HTTPで実装。音声オンは公式 V6 単価 7/9/12/23 credits/s。20 MB 超は計画時拒否。合成アップロード/生成テストあり。extend / upscale / prompt-only modify / 画像 Fusion を公式HTTPと単価で追加 | video-reference Fusion、mask/swap、motion-control / template / voice / PixVerse music は未実装。実課金受け入れは段階2 |
-| ElevenLabs | 公式モデル許可（`eleven_multilingual_v2` / `eleven_turbo_v2_5` / `eleven_flash_v2_5` / `eleven_v3`）と `voice_settings` / `language_code` / `apply_text_normalization`。`mode: music`（`music_v2_5`、3–600s）と `mode: sfx`（`eleven_text_to_sound_v2`、0.5–30s）を計画時検証。`credits: null` は成果物成功＋予約維持。変換用一時ファイルは削除。normalize が汎用 `track`（bgm / sfx / narration）を埋める。公開単価は credits と USD が食い違うため `max_credits` は予約上限のみ | v1 のホスト型MCP v4/Turbo はこのHTTP経路ではない。composition plan / inpainting は未実装。実課金・実voice受け入れは段階2。音声だけ（映像クリップなし）のタイムラインは未対応 |
+| PixVerse | `make.inputs` で計画に束縛したローカル静止画。V6 の image-to-video と first/last-frame transition を公式HTTPで実装。音声オンは公式 V6 単価 7/9/12/23 credits/s。20 MB 超は計画時拒否。合成アップロード/生成テストあり。extend / upscale / prompt-only modify / 画像 Fusion を公式HTTPと単価で追加 | video-reference Fusion、mask/swap、motion-control / template / voice / PixVerse music は未実装。API キーでの有料受け入れは正式版の条件にしない。サブスク CLI の実機確認は未了 |
+| ElevenLabs | 公式モデル許可（`eleven_multilingual_v2` / `eleven_turbo_v2_5` / `eleven_flash_v2_5` / `eleven_v3`）と `voice_settings` / `language_code` / `apply_text_normalization`。`mode: music`（`music_v2_5`、3–600s）と `mode: sfx`（`eleven_text_to_sound_v2`、0.5–30s）を計画時検証。`credits: null` は成果物成功＋予約維持。変換用一時ファイルは削除。normalize が汎用 `track`（bgm / sfx / narration）を埋める。公開単価は credits と USD が食い違うため `max_credits` は予約上限のみ。SFX の実課金 1 件（2秒）は受け入れ済み | v1 のホスト型MCP v4/Turbo はこのHTTP経路ではない。composition plan / inpainting は未実装。音声と music の実課金・実voice受け入れは段階2。音声だけ（映像クリップなし）のタイムラインは未対応 |
 | コア | `make.inputs` を assets 内ファイルに限定し、ハッシュを計画へ束縛。タイムラインクリップにはしない。明示 `credits: null` だけを確定額不明として予約維持（欠落は契約違反）。生成音声の種別は汎用 `track`。v2 の隔離は `TSUGITE_HOME`（`TSUGITE_PROJECTS_HOME` は未使用） | 生成リクエストの v1 自動取り込みはしない（既存どおり警告のみ） |
 
-段階2（P08 / P10 / B04 の実課金受け入れ）と、HyperFrames / MiniMax / Editframe / Hypit / Kling / Tesseract の実験枠は、この進捗の対象外です。
+段階2のうち、ElevenLabs SFX の実課金 1 件以外は、この進捗の対象外です。PixVerse・Kling・TopView のサブスク CLI 接続と、HyperFrames / MiniMax / Editframe / Hypit / Tesseract の実験枠も対象外です。
+
+## 正式版 2.0.0 の判定（2026-10-22）
+
+`v2/package.json` の版は `2.0.0-alpha.5` のままです。この節は判定条件の記録であり、タグ、GitHub Release の公開、npm 公開はしません。
+
+次がそろうまで、正式版 2.0.0 とは呼びません。
+
+| 条件 | いま |
+| --- | --- |
+| ElevenLabs SFX の実課金受け入れ | **済。** 2秒・1本。明示 `credits: null` は、受け取った音声を成功にし、予約は確認ページで精算するまで維持する（[#243](https://github.com/Takamasa045/tsugite/pull/243)） |
+| ElevenLabs の音声と music の実課金受け入れ | 未了。SFX の 1 件では満たさない |
+| PixVerse を、API キーでの有料受け入れで通すこと | **条件から外した。** 2026-10-19 の段階2の文言より、この行が優先する |
+| PixVerse のサブスク CLI 接続での実機確認 | **未了。** PixVerse の CLI にサブスクリプションでログインした状態で、実生成と、その生成から最終ファイルまでの通し書き出しを確認する。実装は別作業で、この文書はコマンドを足さない |
+| Kling と TopView | 同じ方針（CLI のログイン状態。API キーを設定に書かない）。対応は順次。実機確認は未了。PixVerse の実機確認の代わりにはしない |
+| 新しい制作の既定を v2 にする所有者の明示承認（段階4、M07） | 未了。README を v2 入口にしたことは、この承認ではない |
+| v1 を保守として残すこと（M01） | 既存の `project.yaml` 案件は v1 で完走する。ブランチの移動（M02）は未了 |
+| 作者以外3人の初回試用（U07 / S01） | 未了。有料受け入れや実機確認とは別 |
+
+英語の同じ判定は [migration-plan.md](migration-plan.md) と [requirements.md](requirements.md) にあります。
 
 ## まだ分からないこと
 

@@ -72,9 +72,9 @@ product roadmap or proof of paid integrations.
 | P05 | Community/labs labels, optional official namespace | done | No vendor endorsement assumed; no official requirement |
 | P06 | Remotion renderer with accurate license notice | done | Independent optional renderer; real audio/caption MP4 fixture on Mac; sequential still-image holds share the local timeline; tested peers/browser pinned in plan; accurate license guidance; v1 project-specific motion/character graphs stay on v1 |
 | P07 | HyperFrames renderer with music/SFX | done | HyperFrames **0.8.173** pinned in the v2 adapter (real export evidence was recorded on 0.8.24) (`v2/plugins/hyperframes`; version enforced in `index.mjs`), timed captions, looping BGM and SFX under external-network denial. Independent of the v1 root pin **0.8.75** (`package.json`, `backends/hyperframes`). Existing v1 dependencies unchanged |
-| P08 | PixVerse/Kling source plugins | partial | Official current PixVerse V6 text, image-to-video, transition, extend, upscale, prompt-only modify and image-reference Fusion HTTP transports, dated rates, identity recovery and synthetic protocol tests implemented; Kling remains text-only; actual paid acceptance pending |
+| P08 | PixVerse/Kling source plugins | partial | Official current PixVerse V6 text, image-to-video, transition, extend, upscale, prompt-only modify and image-reference Fusion HTTP transports, dated rates, identity recovery and synthetic protocol tests implemented; Kling remains text-only. Formal 2.0.0 does not accept PixVerse by an API-key paid call. The remaining check is a real generation and a full export through the service CLI while that subscription is already logged in. Kling and TopView use the same CLI-login policy, in order. That real-machine check is not done, and this tracker adds no login command |
 | P09 | Local media analysis/Whisper | done | Real existing whisper.cpp/large-v3-turbo model CPU transcript under network denial; binary/model digests retained |
-| P10 | ElevenLabs narration | partial | Official timestamped TTS plus documented music (`music_v2_5`) and SFX (`eleven_text_to_sound_v2`) HTTP transports, local WAV conversion and synthetic tests implemented; `credits: null` keeps the reservation after a received file; v1 hosted-MCP v4/Turbo and composition plans are not this transport; actual paid voice/credit acceptance pending |
+| P10 | ElevenLabs narration | partial | Official timestamped TTS plus documented music (`music_v2_5`) and SFX (`eleven_text_to_sound_v2`) HTTP transports, local WAV conversion and synthetic tests implemented; `credits: null` keeps the reservation after a received file. One billed 2-second SFX is the recorded paid acceptance (#243). Speech and music paid acceptance are still open. v1 hosted-MCP v4/Turbo and composition plans are not this transport |
 | P11 | Fast Edit plugin | done | Standalone validated 18-card decision compiler and real frame-time renderer with emphasis/effects/transitions/zoom/SFX; editable v1 Fast Edit migration; no Jev path changed |
 | P12 | Story/prompt/H3 knowledge packs | done | Portable local story/prompt guidance snapshots; advice never implies execution support |
 | P13 | Tesseract/Editframe/Hypit, TopView/MiniMax as labs | partial | Non-destructive local source-separation packages and zero-cost integrity inspections implemented; experimental v1 execution retained; new labs remote/maintainer review awaits author |
@@ -112,10 +112,34 @@ product roadmap or proof of paid integrations.
 | X04 | No paid generation/new service registration/credential edits | done | None performed; subsequent push/GitHub release authorization recorded above |
 | X05 | Preserve production data and dirty primary worktree | done | Durable dedicated .work/tsugite-v2-worktree with local checkpoint commits; primary changes/projects preserved |
 
+## Formal 2.0.0
+
+`v2/package.json` stays `2.0.0-alpha.5`. This section records the release
+judgment. It does not tag, publish a GitHub Release, or publish to npm.
+The same table is in the [Japanese decision record](migration-plan.ja.md) and
+the [English decision record](migration-plan.md).
+
+Do not call this package 2.0.0 until every row below is met.
+
+| Criterion | Now |
+| --- | --- |
+| ElevenLabs SFX paid acceptance | **Done.** One 2-second request. An explicit `credits: null` marks the received audio successful and keeps the reservation until the confirmation page settles it ([#243](https://github.com/Takamasa045/tsugite/pull/243)) |
+| ElevenLabs speech and music paid acceptance | Open. The one SFX request does not cover them |
+| Passing PixVerse by an API-key paid acceptance | **Removed from the criteria.** This row overrides the 2026-10-19 stage-2 wording for PixVerse |
+| PixVerse real-machine check on the subscription CLI | **Open.** While the PixVerse CLI is logged in with that subscription, confirm a real generation and a full export of that generation. Another change is implementing the path. This tracker adds no login command |
+| Kling and TopView | Same policy: use each service's CLI while that subscription is already logged in, not an API key in settings. Support arrives in order. Real-machine checks are open. They do not stand in for the PixVerse check |
+| Owner's explicit approval to make v2 the default for new productions (stage 4, M07) | Open. Pointing the README at v2 is not that approval |
+| Keep v1 in maintenance (M01) | Existing `project.yaml` productions finish on v1. Moving the maintenance branch (M02) is open |
+| Three non-author first trials (U07 / S01) | Open. Separate from paid acceptance and the CLI check |
+
+PixVerse, Kling, and TopView are not connected by writing an API key into the
+project. ElevenLabs is outside that CLI policy.
+
 ## Remaining acceptance and rollout
 
 Locally implementable code and reproducible evidence are in this alpha.
-The remaining partial rows refer to actual paid service acceptance, independent
+The remaining partial rows refer to the subscription-CLI real-machine check,
+remaining ElevenLabs speech/music acceptance, independent
 users or author/maintainer decisions. The experiments
 remain explicitly v1 compatibility sources; their inventory is not a promise
 of new v2-native execution. See [local readiness](local-readiness.md) for each
@@ -123,8 +147,10 @@ external requirement and the precise supported boundary.
 The owner-facing [v1→v2 migration decision record](migration-plan.ja.md)
 records the 2026-10-19 decision: the recommended feature split is adopted,
 paid acceptance is last (lowest-credit service first; Kling may need prepaid
-credits), and execution order is 1 → 3 → 4 → 5 → 2. Remaining owner choices
-are the three testers, the v2 default cutover,
+credits), and execution order is 1 → 3 → 4 → 5 → 2. On 2026-10-22 the PixVerse
+acceptance method changed from an API-key paid call to a subscription-CLI
+real-machine check. The English copy is [migration-plan.md](migration-plan.md).
+Remaining owner choices are the three testers, the v2 default cutover,
 and v1 wind-down.
 
 The registry acquisition command has synthetic hostile-output tests and real

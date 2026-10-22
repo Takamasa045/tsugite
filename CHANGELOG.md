@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Point new work at v2 in the root README, keep v1 in maintenance, and record the formal 2.0.0 criteria: ElevenLabs SFX paid acceptance is done, and PixVerse is checked on a logged-in subscription CLI rather than by an API-key paid call. That CLI check is open. Draft release notes are under `v2/docs/release-notes/`. The version stays `2.0.0-alpha.5`. Docs only.
 - Stop auto-opening confirmation pages. v2 `plan` now prints the local URL and opens a browser only with `--open`; `--no-open` is accepted and ignored. v1 `review` / `viewer` still open only with `--open` and print the confirmation path so a person can open it before Gate approval.
 - Update video tooling to Remotion 4.0.536, HyperFrames 0.8.173, GSAP 3.15.0, PixVerse CLI 1.4.9, Kling CLI 0.2.3, MiniMax CLI 1.0.28, Editframe 0.60.34, Hypit 0.3.1 and Tesseract 0.4.0. Align v2 renderer peers and bind split HyperFrames runtime files to reviewed plans.
 - Preserve local rendering with the current Editframe SDK/advanced Vite API, adapt Hypit SDK and CLI contracts, keep provider CLI pins effective in execution/Doctor, and retain page-only approvals and service-specific budgets.

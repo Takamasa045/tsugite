@@ -13,14 +13,14 @@ const READMES = [
     path: "README.ja.md",
     referenceLink: "docs/reference.ja.md",
     startHeading: "## はじめ方",
-    firstHeadings: ["## こんな人に", "## はじめ方", "## 終わったら見えるもの"],
+    firstHeadings: ["## こんな人に", "## はじめ方", "## クイックスタート"],
     requestNeedle: "https://github.com/Takamasa045/tsugite"
   },
   {
     path: "README.md",
     referenceLink: "docs/reference.md",
     startHeading: "## Get started",
-    firstHeadings: ["## Who it's for", "## Get started", "## What you'll see"],
+    firstHeadings: ["## Who it's for", "## Get started", "## Quick start"],
     requestNeedle: "https://github.com/Takamasa045/tsugite"
   }
 ] as const;
@@ -41,7 +41,10 @@ const DOC_ROOTS = [
   "v2/docs/local-readiness.md",
   "v2/docs/contribution-backlog.md",
   "v2/docs/migration-plan.ja.md",
-  "v2/docs/release-alpha5.md"
+  "v2/docs/migration-plan.md",
+  "v2/docs/release-alpha5.md",
+  "v2/docs/release-notes",
+  "v2/CHANGELOG.md"
 ] as const;
 
 const MIGRATION_PLAN = "v2/docs/migration-plan.ja.md";
@@ -90,21 +93,27 @@ describe("README onboarding contract", () => {
     }
   });
 
-  it("documents an isolated v1 CLI quick start through the confirmation page", async () => {
+  it("documents a v2 quick start with POSIX and PowerShell, and no missing story command", async () => {
     for (const readme of READMES) {
       const text = await readFile(readme.path, "utf8");
-      const heading = readme.path === "README.md" ? "## Quick start" : "## クイックスタート";
-      const section = sectionByHeading(text, heading);
-      expect(section, readme.path).toContain("TSUGITE_PROJECTS_HOME");
-      expect(section, readme.path).toContain("$env:TSUGITE_PROJECTS_HOME");
-      expect(section, readme.path).toContain("examples/storyboard-local");
-      expect(section, readme.path).toContain("node bin/pipeline validate");
-      expect(section, readme.path).toContain("node bin/pipeline plan");
-      expect(section, readme.path).toContain("node bin/pipeline review");
+      const section = sectionByHeading(text, "## Quick start") || sectionByHeading(text, "## クイックスタート");
+      expect(section, readme.path).toContain("npm --prefix v2 ci --ignore-scripts");
+      expect(section, readme.path).toContain("npm run --silent v2 -- init ./my-video");
+      expect(section, readme.path).toContain("npm run --silent v2 -- check --project ./my-video");
+      expect(section, readme.path).toContain("npm run --silent v2 -- plan --project ./my-video");
+      expect(section, readme.path).toContain("```sh");
+      expect(section, readme.path).toContain("```powershell");
       expect(section, readme.path).toContain("--open");
-      expect(section, readme.path).toMatch(/docs\/reference(?:\.ja)?\.md/);
-      expect(section, readme.path).toContain("v2/README.md");
-      expect(section, readme.path).not.toContain("docs/onboarding/first-video.ja.md");
+      expect(section, readme.path).toContain("TSUGITE_PROJECTS_HOME");
+      expect(text, readme.path).toContain("npm run --silent v2 -- make --project ./my-video");
+      expect(text, readme.path).toContain("npm run --silent v2 -- export --project ./my-video");
+      expect(text, readme.path).toContain("--from-v1");
+      expect(text, readme.path).toContain("--flatten");
+      expect(text, readme.path).toContain("--archive-v1");
+      expect(text, readme.path).toContain("https://github.com/Takamasa045/tsugite/pull/245");
+      expect(text, readme.path).not.toContain("plugin story");
+      expect(text, readme.path).not.toContain("credential_env");
+      expect(text, readme.path).toMatch(/CLI/);
     }
   });
 
@@ -193,10 +202,13 @@ describe("README onboarding contract", () => {
         expect(images, `${readme.path} Phase 1 has no screenshot files, so README must not embed images`).toEqual([]);
         continue;
       }
-      const prefix = stripFencedCode(contentThroughNthH2(text, 3));
-      const prefixImages = markdownImages(prefix);
-      expect(prefixImages.length, `${readme.path} Phase 2 needs one screenshot in the first three ## sections`).toBeGreaterThanOrEqual(1);
-      const alts = markdownImageAlts(prefix);
+      const imageSection = sectionByHeading(
+        text,
+        readme.path === "README.md" ? "## v1 stays in maintenance" : "## v1 は保守として残る"
+      );
+      const prefixImages = markdownImages(stripFencedCode(imageSection));
+      expect(prefixImages.length, `${readme.path} keeps the v1 launcher screenshot with the maintenance section`).toBeGreaterThanOrEqual(1);
+      const alts = markdownImageAlts(stripFencedCode(imageSection));
       expect(alts.length, `${readme.path} screenshot alt count`).toBe(prefixImages.length);
       for (const [index, image] of prefixImages.entries()) {
         const resolved = resolveMarkdownTarget(readme.path, image);
