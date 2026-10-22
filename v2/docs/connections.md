@@ -8,7 +8,12 @@ that variable belongs to the v1 launcher shelf. This file stores references
 and scalar defaults, never a key or token value. No credential is created or
 changed by Tsugite. Do not put credentials in YAML, notes or receipts.
 
-PixVerse, Kling, and TopView follow the v1 subscription CLIs. An enabled
+PixVerse, Kling, and TopView follow the v1 subscription CLIs. That is the
+connection for planning and `make`. It is not a finished real-machine
+acceptance and it does not make this package 2.0.0. Tsugite does not register
+its own login; a missing vendor session stops before generation. ElevenLabs
+stays on HTTP, including the one recorded SFX charge, and is outside this CLI
+policy. An enabled
 connection with no HTTP fields uses `transport: cli`. The optional `command`
 is an executable path, or an array of one to eight arguments, never a shell
 line. PixVerse and Kling still accept an explicit HTTP connection when

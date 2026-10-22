@@ -20,8 +20,11 @@ requested tail. Images over 20 MB
 and videos over 32 MB fail at planning. Video-reference Fusion, masks, motion
 control, templates, voice and PixVerse music are unimplemented. Verify actual
 charges before paid use. The default live connection is the subscription CLI (`pixverse`, or
-`PIXVERSE_CLI`). Login is `pixverse auth status --json` before `create`. A
-missing CLI or a failed login stops before generation. The CLI quote is an
+`PIXVERSE_CLI`). Login is the existing `pixverse auth status --json` before
+`create`. Tsugite does not add its own login command. A
+missing CLI or a failed login stops before generation. The real-machine check
+(a real generation and a full export while that subscription is logged in) is
+open. API-key paid acceptance is not the formal 2.0.0 criterion. The CLI quote is an
 explicit positive `max_credits`; it does not use the V6 rate table. A missing
 or null credit number leaves the reservation uncertain. Login balance is not a
 charge. HTTP remains available when `base_url` and `credential_env` are set.
