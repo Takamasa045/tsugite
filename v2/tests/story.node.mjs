@@ -167,6 +167,34 @@ test('changing the ending rechecks related plants and shots and blocks the old a
   assert.match(reviewed.html, /自動では作り直しません/);
 });
 
+test('a decided framework is kept even when a keyword would rank something else', async () => {
+  const adopted = await consult({ request: 'three-act を採用した構成', seconds: 20, entry: 'decided' });
+  assert.equal(adopted.recommendation.primary.id, 'three-act');
+  assert.equal(adopted.draft.form.id, 'three-act');
+  const byName = await consult({ request: '三幕構成を映像にする', seconds: 20, entry: 'decided' });
+  assert.equal(byName.draft.form.id, 'three-act');
+  const refused = await consult({ request: 'three-act を採用した構成。ドラマにはしない', seconds: 20, entry: 'decided' });
+  assert.notEqual(refused.draft.form.id, 'three-act');
+});
+
+test('generated video task ids are valid shot refs and audio tasks are not shots', async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'tsugite-story-shots-'));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const sample = JSON.parse(await fs.readFile(samplePath, 'utf8'));
+  for (const beat of sample.beats) beat.shot_refs = ['shot-one'];
+  sample.beats[0].generation_refs = ['shot-one', 'bed'];
+  await fs.writeFile(path.join(root, 'tsugite.yaml'), 'length: 20s\nuse: []\nmake:\n  - id: shot-one\n    kind: video\n  - id: bed\n    kind: audio\n');
+  await fs.writeFile(path.join(root, 'plan.json'), JSON.stringify(sample));
+  const checked = await checkStoryFile(root, 'plan.json');
+  assert.equal(checked.mechanical.ok, true);
+  const audioShot = structuredClone(sample);
+  audioShot.beats[0].shot_refs = ['bed'];
+  await fs.writeFile(path.join(root, 'plan.json'), JSON.stringify(audioShot));
+  const rejected = await checkStoryFile(root, 'plan.json');
+  assert.equal(rejected.mechanical.ok, false);
+  assert.ok(rejected.mechanical.issues.some(issue => issue.code === 'shot_ref_missing' && issue.id === 'bed'));
+});
+
 test('the worked example and request guide stay machine-checkable', async t => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'tsugite-story-example-'));
   t.after(() => fs.rm(root, { recursive: true, force: true }));

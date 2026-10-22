@@ -151,7 +151,10 @@ function recommend(catalog, request, seconds, entry, topics) {
   let pool = matchedPool.length ? matchedPool : available.filter(item => neutral.has(item.framework.id));
   if (!pool.length) pool = available;
   if (entry === 'decided') {
-    const named = pool.find(item => request.includes(item.framework.id) || request.includes(item.framework.name));
+    const named = available
+      .map(item => ({ item, specificity: frameworkMention(request, item.framework) }))
+      .filter(candidate => candidate.specificity > 0)
+      .sort((a, b) => b.specificity - a.specificity || b.item.ranking_weight - a.item.ranking_weight || a.item.order - b.item.order)[0]?.item;
     if (named) pool = [named, ...pool.filter(item => item !== named)];
   }
   const chosen = pool[0] ?? ranked[0];
@@ -169,6 +172,14 @@ function recommend(catalog, request, seconds, entry, topics) {
     rejected,
     principles: principlesFor(catalog, present.id)
   };
+}
+
+function frameworkMention(request, framework) {
+  const escaped = framework.id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const idHit = new RegExp(`(?:^|[^a-z0-9-])${escaped}(?=$|[^a-z0-9-])`, 'i').test(request);
+  const nameHit = Boolean(framework.name) && request.includes(framework.name);
+  if (!idHit && !nameHit) return 0;
+  return Math.max(idHit ? framework.id.length : 0, nameHit ? framework.name.length : 0);
 }
 
 function frameworkView(item) {
@@ -512,9 +523,12 @@ async function projectContext(root) {
   const config = parse(raw, { maxAliasCount: 0 });
   if (!config || typeof config !== 'object') return null;
   const seconds = typeof config.length === 'number' ? config.length : typeof config.length === 'string' && /^\d+(\.\d+)?s$/.test(config.length) ? Number(config.length.slice(0, -1)) : null;
-  const clipIds = Array.isArray(config.use) ? config.use.map((_, index) => `input-${index}`) : [];
-  const taskIds = Array.isArray(config.make) ? config.make.map(task => task?.id).filter(id => typeof id === 'string') : [];
-  return { seconds, clipIds, taskIds };
+  const tasks = Array.isArray(config.make) ? config.make.filter(task => typeof task?.id === 'string') : [];
+  const clipIds = [
+    ...(Array.isArray(config.use) ? config.use.map((_, index) => `input-${index}`) : []),
+    ...tasks.filter(task => (task.kind ?? 'video') !== 'audio').map(task => task.id)
+  ];
+  return { seconds, clipIds, taskIds: tasks.map(task => task.id) };
 }
 
 async function readStory(root, relative) {
