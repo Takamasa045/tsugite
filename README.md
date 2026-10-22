@@ -91,7 +91,7 @@ PowerShell uses the same line. Replace the path with your production. A producti
 
 ## How generation services connect
 
-PixVerse, Kling, and TopView are not connected by writing an API key into settings. Use each service's CLI while that subscription is already logged in. v2 support for those CLIs arrives in order. This page does not choose the login or the billing account. The quick start above does not call those CLIs.
+PixVerse, Kling, and TopView are not connected by writing an API key into settings. Use each service's CLI while that subscription is already logged in. v2 calls those CLIs after the confirmation page approves a plan. The real-machine check is still open. This page does not choose the login or the billing account, and it does not add a login command. The quick start above does not call those CLIs.
 
 ElevenLabs sound effects have one recorded paid acceptance. Paid acceptance for speech and music is still open. A real PixVerse generation, and a full export of that generation, are still open as a subscription-CLI check on a real machine.
 

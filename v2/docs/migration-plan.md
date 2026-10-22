@@ -33,7 +33,7 @@ Current position (2026-10-22):
   are open.
 - PixVerse, Kling, and TopView are not connected by writing an API key into
   settings. Use each service's CLI while that subscription is already logged
-  in. Support arrives in order. The real-machine check is open.
+  in. The path is in this package. The real-machine check is open.
 - Three non-author first trials are open. Synthetic tests do not complete paid
   acceptance or a real-machine check.
 
@@ -85,7 +85,7 @@ docs showed.
 | MiniMax | 8 | No v2 execution plugin. Separated as a v1 experimental source | **Stay in labs** | There is count, and no v2 execution path. Stage 1 does not add a plugin for it | [Labs list](../labs/README.md), [requirement P13](requirements.md) |
 | Editframe | 6 | No v2 execution plugin. Optional v1 runtime. Not in the distribution tarball | **Stay in labs** | An unresolved High dependency alert. Kept out of the v2 distribution | [alpha.5 distribution](release-alpha5.md), GitHub Dependabot [#131](https://github.com/Takamasa045/tsugite/security/dependabot/131), [labs list](../labs/README.md) |
 | Hypit | 3 | Not a v2 renderer. v1 production entry separated as an experimental source | **Stay in labs** | Low count, and it is not a v2 exporter | [Labs list](../labs/README.md), [requirement P13](requirements.md) |
-| Kling | 2 | Text HTTP path and synthetic tests. Connection is a logged-in CLI, not an API key. Support arrives in order. Real-machine check is open. Labs | **Stay in labs** | Low count. Same connection policy as PixVerse. The owner chooses whether to try it with PixVerse | [`v2/plugins/kling`](../plugins/kling/constraints.md), [requirement P08](requirements.md) |
+| Kling | 2 | Text HTTP path and a logged-in CLI path. Connection is a logged-in CLI, not an API key. The real-machine check is open. Labs | **Stay in labs** | Low count. Same connection policy as PixVerse. The owner chooses whether to try it with PixVerse | [`v2/plugins/kling`](../plugins/kling/constraints.md), [requirement P08](requirements.md) |
 | Tesseract | 2 | No v2 execution plugin. Optional v1 renderer separated as an experimental source | **Stay in labs** | Low count, and a weak case for the v2 default | [Labs list](../labs/README.md), [requirement P13](requirements.md) |
 | Fast Edit | (already in v2) | 18-card decisions and real frame export. Copy from v1 Fast Edit is supported | No gap (already v2) | No further migration decision | [`v2/plugins/fast-edit`](../plugins/fast-edit/constraints.md), [requirement P11](requirements.md) |
 | Whisper | (already in v2) | Transcript evidence with a local whisper.cpp and an existing model. Labeled labs, and implemented | No gap (already v2) | No further migration decision | [`v2/plugins/whisper`](../plugins/whisper/constraints.md), [requirement P09](requirements.md) |
@@ -147,8 +147,8 @@ Do not call the package formal 2.0.0 until every row below is met.
 | ElevenLabs SFX paid acceptance | **Done.** One 2-second request. An explicit `credits: null` marks the received audio successful and keeps the reservation until the confirmation page settles it ([#243](https://github.com/Takamasa045/tsugite/pull/243)) |
 | ElevenLabs speech and music paid acceptance | Open. The one SFX request does not cover them |
 | Passing PixVerse by an API-key paid acceptance | **Removed from the criteria.** This row overrides the 2026-10-19 stage-2 wording for PixVerse |
-| PixVerse real-machine check on the subscription CLI | **Open.** While the PixVerse CLI is logged in with that subscription, confirm a real generation and a full export of that generation. Another change is implementing the path. This file adds no login command |
-| Kling and TopView | Same policy: use each service's CLI while that subscription is already logged in, and do not write an API key into settings. Support arrives in order. Real-machine checks are open. They do not stand in for the PixVerse check |
+| PixVerse real-machine check on the subscription CLI | **Open.** The path is in this package and tests use a fake CLI. While the PixVerse CLI is logged in with that subscription, confirm a real generation and a full export of that generation. This file adds no Tsugite login command |
+| Kling and TopView | Same policy: use each service's CLI while that subscription is already logged in, and do not write an API key into settings. The path is in this package. Real-machine checks are open. They do not stand in for the PixVerse check |
 | Owner's explicit approval to make v2 the default for new productions (stage 4, M07) | Open. Pointing the README at v2 is not that approval |
 | Keep v1 in maintenance (M01) | Existing `project.yaml` productions finish on v1. Moving the maintenance branch (M02) is open |
 | Three non-author first trials (U07 / S01) | Open. Separate from paid acceptance and the real-machine check |

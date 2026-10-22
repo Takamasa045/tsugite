@@ -23,8 +23,8 @@ is in [docs/release-notes/](docs/release-notes/github-release.md).
 - Record one ElevenLabs SFX paid acceptance (2 seconds). Speech and music paid
   acceptance stay open.
 - State the connection policy for PixVerse, Kling, and TopView: use each
-  service's CLI while that subscription is already logged in. Support arrives
-  in order. Do not treat an API key in settings as the connection. Formal 2.0.0
-  drops PixVerse API-key paid acceptance and instead requires a real-machine
-  check on that CLI path (a real generation and a full export). That check is
-  open. This note adds no login command.
+  service's CLI while that subscription is already logged in. The path is in
+  this package and tests use a fake CLI. Do not treat an API key in settings
+  as the connection. Formal 2.0.0 drops PixVerse API-key paid acceptance and
+  instead requires a real-machine check on that CLI path (a real generation
+  and a full export). That check is open. This note adds no login command.

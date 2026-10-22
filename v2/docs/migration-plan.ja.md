@@ -14,7 +14,7 @@
 - いまの制作の正本は **v1 0.18.0**（`project.yaml` の案件）。v1 は保守として残る。新しい制作の案内は v2 を入口にする。版番号は上げていない。
 - 試用用の独立配布は **v2 2.0.0-alpha.5**（`tsugite.yaml`）。正式版 2.0.0 の判定は、この文書の末尾を正とする。
 - ElevenLabs の SFX は、実課金 1 件（2秒）を受け入れ済みとする。音声と music は未了。
-- PixVerse・Kling・TopView は、API キーを設定に書く方式ではつながない。各サービスの CLI で、サブスクリプションにログインした状態で使う。対応は順次で、その実機確認は未了。
+- PixVerse・Kling・TopView は、API キーを設定に書く方式ではつながない。各サービスの CLI で、サブスクリプションにログインした状態で使う。経路はこのパッケージにあり、実機確認は未了。
 - 第三者3人の初回試用は未了。合成テストだけでは有料受け入れも実機確認も完了にしない。
 
 案件名は書いていません。件数は所有者提供の集計です。
@@ -53,7 +53,7 @@
 | MiniMax | 8 | v2の実行プラグインはない。v1由来の実験ソースとして分離済み | **実験枠（labs）のまま** | 件数はあるが、v2に実行経路がない。段階1で無理に新プラグインを増やさない | [実験枠の一覧](../labs/README.md)、[要件 P13](requirements.md) |
 | Editframe | 6 | v2の実行プラグインはない。v1の任意ランタイム。配布tarballには入れていない | **実験枠（labs）のまま** | 未解決のHigh依存アラートがある。v2配布物からは外してある | [alpha.5配布](release-alpha5.md) の GitHub Dependabot [#131](https://github.com/Takamasa045/tsugite/security/dependabot/131)、[実験枠の一覧](../labs/README.md) |
 | Hypit | 3 | v2のレンダラーではない。v1の制作入口を実験ソースとして分離 | **実験枠（labs）のまま** | 件数が少なく、v2の書き出し器ではない | [実験枠の一覧](../labs/README.md)、[要件 P13](requirements.md) |
-| Kling | 2 | text のHTTP経路と合成テストあり。つなぎ方は API キーではなく CLI のログイン状態。対応は順次で、実機確認は未了。実験枠 | **実験枠（labs）のまま** | 件数が少ない。PixVerse と同じ接続方針。同時に試すかは所有者が選ぶ | [`v2/plugins/kling`](../plugins/kling/constraints.md)、[要件 P08](requirements.md) |
+| Kling | 2 | text のHTTP経路と、ログイン済み CLI の経路がある。つなぎ方は API キーではなく CLI のログイン状態。実機確認は未了。実験枠 | **実験枠（labs）のまま** | 件数が少ない。PixVerse と同じ接続方針。同時に試すかは所有者が選ぶ | [`v2/plugins/kling`](../plugins/kling/constraints.md)、[要件 P08](requirements.md) |
 | Tesseract | 2 | v2の実行プラグインはない。v1の任意レンダラーを実験ソースとして分離 | **実験枠（labs）のまま** | 件数が少なく、v2既定に載せる根拠が弱い | [実験枠の一覧](../labs/README.md)、[要件 P13](requirements.md) |
 | Fast Edit | （v2で対応済み） | 18カードの判定と実フレーム書き出しあり。v1のFast Editからのコピーも可 | 差なし（既にv2） | 追加の移行判断は不要 | [`v2/plugins/fast-edit`](../plugins/fast-edit/constraints.md)、[要件 P11](requirements.md) |
 | Whisper | （v2で対応済み） | 手元のwhisper.cppと既存モデルでの文字起こし証拠あり。実験枠ラベルだが実装済み | 差なし（既にv2） | 追加の移行判断は不要 | [`v2/plugins/whisper`](../plugins/whisper/constraints.md)、[要件 P09](requirements.md) |
@@ -100,8 +100,8 @@
 | ElevenLabs SFX の実課金受け入れ | **済。** 2秒・1本。明示 `credits: null` は、受け取った音声を成功にし、予約は確認ページで精算するまで維持する（[#243](https://github.com/Takamasa045/tsugite/pull/243)） |
 | ElevenLabs の音声と music の実課金受け入れ | 未了。SFX の 1 件では満たさない |
 | PixVerse を、API キーでの有料受け入れで通すこと | **条件から外した。** 2026-10-19 の段階2の文言より、この行が優先する |
-| PixVerse のサブスク CLI 接続での実機確認 | **未了。** PixVerse の CLI にサブスクリプションでログインした状態で、実生成と、その生成から最終ファイルまでの通し書き出しを確認する。実装は別作業で、この文書はコマンドを足さない |
-| Kling と TopView | 同じ方針（CLI のログイン状態。API キーを設定に書かない）。対応は順次。実機確認は未了。PixVerse の実機確認の代わりにはしない |
+| PixVerse のサブスク CLI 接続での実機確認 | **未了。** 経路はパッケージ内にあり、テストは偽物の CLI だけである。PixVerse の CLI にサブスクリプションでログインした状態で、実生成と、その生成から最終ファイルまでの通し書き出しを確認する。Tsugite 独自のログインコマンドは足さない |
+| Kling と TopView | 同じ方針（CLI のログイン状態。API キーを設定に書かない）。経路はある。実機確認は未了。PixVerse の実機確認の代わりにはしない |
 | 新しい制作の既定を v2 にする所有者の明示承認（段階4、M07） | 未了。README を v2 入口にしたことは、この承認ではない |
 | v1 を保守として残すこと（M01） | 既存の `project.yaml` 案件は v1 で完走する。ブランチの移動（M02）は未了 |
 | 作者以外3人の初回試用（U07 / S01） | 未了。有料受け入れや実機確認とは別 |
@@ -119,6 +119,20 @@
 機械検証は id、尺、参照、仕込みのつながりです。意味が伝わるかは採点しません。`intentionally_unrecovered` と `missed` は別です。曲を未確認のとき、拍や歌詞時刻は作りません。`ranking_weight` は並び順であり、出来の確率ではありません。story plan のない古い案件は、これまでどおり計画できます。
 
 この作業は課金・実生成・render・承認状態の拡張ではありません。段階2（P08 / P10 / B04）は引き続き最後です。出典が空のカタログ項目（構成 26/34、原則 19/36）は、空のまま区別して数えます。出典を後から作ることはしていません。2026-10-22 の `npm --prefix v2 run check` は **142 passed / 0 failed / skip 5** です。採用済み構成は除外後の全候補から id か名称で先に解決し、生成動画のタスク id は計画時と同じくショット参照に含めます。音声生成の id はショットにしません。
+
+## サブスク CLI 接続（2026-10-22）
+
+所有者の決定: PixVerse・Kling・TopView は API キーではなく、各社 CLI のサブスクログインのまま使う。v1 がその仕様なので、v2 も踏襲する。上の 2026-10-19 の表は、その日の採用記録として残す。この節は、そのあとの進捗である。
+
+- PixVerse の live 既定は CLI（`pixverse auth status` のあと `create` / `task wait` / `asset download`）。`base_url` と `credential_env` を書いた HTTP 接続は任意で残る。CLI の見積もりは明示した正の `max_credits` で、V6 の API 単価表は使わない。
+- Kling は CLI（`kling who_am_i` のあと `text_to_video`）を追加した。HTTP は任意のまま。実験枠の判断は変えていない。
+- TopView は v2 に無かったので、公式 skill の `video_gen.py` と `auth.py status` だけの labs プラグインを追加した。HTTP 資格情報は拒否する。MCP や資格情報ファイルは読まない。
+- サブスク CLI がクレジット数を出さない、または `null` のときは不明とする。成果物は成功でき、予約は確認ページまで維持する。欠落を 0 として精算しない。ログイン応答の残高は課金に使わない。
+- 確認ページの承認、承認前の全件予約、タスク id の保存、失敗時に返金を推測しない扱いは維持する。テストは偽物の CLI だけで、実生成・課金はしていない。
+
+この変更は CLI の経路と偽物 CLI のテストまでである。Tsugite 独自のログインコマンドは足さない。未ログインなら各社 CLI の既存ログインで止まり、生成は送らない。版は `2.0.0-alpha.5` のままである。
+
+正式版の判定は、並行するリリース準備と同じにする。ElevenLabs SFX の記録済み 1 件（2秒、[#243](https://github.com/Takamasa045/tsugite/pull/243)）以外の実課金は進めない。PixVerse を API キーの有料呼び出しで通すことは、正式版の条件にしない。残る実機確認は、各社 CLI にサブスクリプションでログインした状態での実生成と通し書き出しで、この変更はそれをしていない。Kling と TopView は同じ方針で、PixVerse の実機確認の代わりにはしない。README を v2 の入口にすることは、段階4の承認ではない。
 
 ## まだ分からないこと
 

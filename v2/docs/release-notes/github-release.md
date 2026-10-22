@@ -54,10 +54,11 @@ After you keep a JSON plan, run `plugin story check` and then
 
 ## How PixVerse, Kling, and TopView connect
 
-Use each service's CLI while that subscription is already logged in. Support
-arrives in order. Do not connect them by writing an API key into project
-settings. This draft does not choose a login or a billing account, and it does
-not add a login command. Another change is implementing that path.
+Use each service's CLI while that subscription is already logged in. The path
+is in this package and tests use a fake CLI. Do not connect them by writing an
+API key into project settings. This draft does not choose a login or a billing
+account, and it does not add a Tsugite login command. The real-machine check
+is open.
 
 The offline sample (`init`, `check`, `plan`, `make`, `export`) does not call
 those CLIs.
@@ -72,8 +73,9 @@ Judgment, in [migration-plan.md](../migration-plan.md):
 - PixVerse real-machine check on the subscription CLI: open. That check is a
   real generation and a full export of that generation while the CLI is logged
   in with the subscription.
-- Kling and TopView follow the same CLI-login policy, in order. Their
-  real-machine checks are open and do not replace the PixVerse check.
+- Kling and TopView follow the same CLI-login policy. The path is in this
+  package. Their real-machine checks are open and do not replace the PixVerse
+  check.
 - Three non-author first trials, and an explicit owner approval to make v2 the
   default, are still open.
 

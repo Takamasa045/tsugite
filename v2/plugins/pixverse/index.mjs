@@ -1,4 +1,5 @@
 import {createTransport,payload} from './transport.mjs';
+import {createCli} from './cli.mjs';
 import definition from './contract.json' with {type:'json'};
 const OPTION_KEYS=['model','aspect','quality','seed','voice_id','max_credits','mode','audio'];
 const MODES=['text','image','transition','extend','upscale','modify','reference'];
@@ -78,6 +79,8 @@ export function reconcile(receipt) {
   return {providerJobId:receipt.provider_job_id,status:receipt.status,actualCredits:known?receipt.credits_charged:null,releaseReservation:receipt.status==='failed'&&known&&receipt.credits_charged===0};
 }
 export function normalize(task,{format='16:9',defaults={}}={}){const options={model:'v6',quality:'360p',aspect:format,mode:'text',...defaults,...task.options};const value={...task,options};request(value);payload(value);return value;}
+export function normalizeCli(task,context={}){const model=task.options?.model??context.defaults?.model??'v6';if(!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(model))throw new Error('Invalid PixVerse CLI model');const checked=normalize({...task,options:{...task.options,model:'v6'}},context);return {...checked,options:{...checked.options,model}};}
+function quoteCli(task,context){const prepared=normalizeCli(task,context),maximum=prepared.options.max_credits;if(!Number.isFinite(maximum)||maximum<=0)throw new Error('An explicit positive provider credit maximum is required');return {service:'pixverse',credits:maximum};}
 function estimate(task){
   const t=normalize(task),mode=t.options.mode??'text',source=sourceSeconds((t.inputs??[])[0]);
   if(mode==='upscale'){
@@ -91,5 +94,5 @@ function estimate(task){
   }
   return RATES[t.options.audio?'on':'off'][t.options.quality]*t.seconds;
 }
-const implementation={normalize,quote(task){const expected=estimate(task),maximum=normalize(task).options.max_credits??expected;if(maximum<expected)throw new Error('Credit maximum is below the documented estimate');return {service:'pixverse',credits:maximum,estimate:expected,pricingAsOf:'2026-10-18'};},connect(connection){return {...implementation,async make(args){return createTransport({...connection,key:connection.credential(),fetch:globalThis.fetch}).make(args);}};},async make(){throw new Error('Live execution is disabled without an explicit configured connection');}};
+const implementation={normalize,quote(task){const expected=estimate(task),maximum=normalize(task).options.max_credits??expected;if(maximum<expected)throw new Error('Credit maximum is below the documented estimate');return {service:'pixverse',credits:maximum,estimate:expected,pricingAsOf:'2026-10-18'};},connect(connection){const cli=connection.transport==='cli';return {...implementation,normalize(task,context){return cli?normalizeCli(task,context):normalize(task,context);},quote(task){return cli?quoteCli(task):implementation.quote(task);},async make(args){return cli?createCli({command:connection.command}).make(args):createTransport({...connection,key:connection.credential(),fetch:globalThis.fetch}).make(args);}};},async make(){throw new Error('Live execution is disabled without an explicit configured connection');}};
 export default implementation;

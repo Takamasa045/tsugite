@@ -32,7 +32,7 @@ maintainer decision; a machine fixture cannot honestly complete them:
 | Requirement IDs | Remaining acceptance / decision |
 |---|---|
 | U07, S01 | Three independent novice trials on the three OSs, including human timing; kit in [trial-kit.ja.md](onboarding/trial-kit.ja.md) |
-| B04, P08, P10 | ElevenLabs SFX has one recorded paid acceptance. Speech, music, and B04 reconciliation remain open. PixVerse API-key paid acceptance is not the 2.0.0 gate. The open gate is a real generation and a full export through the subscription CLI. Kling and TopView use that same CLI-login policy, in order, and are not confirmed |
+| B04, P08, P10 | ElevenLabs SFX has one recorded paid acceptance. Speech, music, and B04 reconciliation remain open. PixVerse API-key paid acceptance is not the 2.0.0 gate. The open gate is a real generation and a full export through the subscription CLI. Kling and TopView use that same CLI-login policy. Their paths are in this package. Real-machine checks are open and are not confirmed |
 | P13, P14, P15 | Review/maintain the separated experiments and choose a new labs remote; the current authorization names the existing repository only |
 | D08 | Assign actual maintainers; the trial report form is prepared (D06 is done: #228–#232 are published) |
 | M02, M07, S05 | v1 support duration/branch policy, fork-user notice and the new-production cutover after independent acceptance |

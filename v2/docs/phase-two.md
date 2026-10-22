@@ -61,7 +61,7 @@ tsugite plugin add elevenlabs
 ```
 
 These copy bundled standalone packages into this project without npm/network
-operations. Their explicit synthetic mode remains zero-cost. Official HTTP transports have synthetic protocol tests. ElevenLabs SFX has one recorded paid acceptance. PixVerse, Kling, and TopView are not connected by an API key in settings: use each service CLI while that subscription is already logged in. That real-machine check is open, and this page adds no login command.
+operations. Their explicit synthetic mode remains zero-cost. Official HTTP transports have synthetic protocol tests. ElevenLabs SFX has one recorded paid acceptance. PixVerse, Kling, and TopView are not connected by an API key in settings: the bundled plugins call each service CLI while that subscription is already logged in. That real-machine check is open, and this page adds no login command.
 Set `execution: mock` explicitly to create test patterns or sine-wave audio:
 
 ```yaml

@@ -42,7 +42,9 @@ export async function plugin(root, id, execute = false,{mode='offline'} = {}) {
   if(mode==='live'&&manifest.network){
     if(typeof implementation?.connect!=='function')fail('Plugin has no live connection contract');
     const connection=manifest.settings.connection;
-    implementation=implementation.connect({baseURL:connection.base_url,origins:connection.download_origins,credential:()=>{const value=process.env[connection.credential_env];if(!value)fail('Selected credential environment variable is unavailable');return value;}});
+    implementation=connection.transport==='cli'
+      ?implementation.connect({transport:'cli',command:connection.command??null})
+      :implementation.connect({transport:'http',baseURL:connection.base_url,origins:connection.download_origins,credential:()=>{const value=process.env[connection.credential_env];if(!value)fail('Selected credential environment variable is unavailable');return value;}});
   }
   if (!implementation || typeof implementation.quote !== 'function') fail('Plugin missing quote');
   return { manifest, implementation };

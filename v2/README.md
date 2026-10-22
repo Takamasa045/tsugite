@@ -22,7 +22,7 @@ The six-second sample below checks installation.
 source-plugin mocks work. Documented HTTP transports have synthetic fixture tests.
 ElevenLabs SFX has one recorded paid acceptance. PixVerse, Kling, and TopView
 are used through each service's CLI while that subscription is already logged
-in. Support arrives in order. An API key in settings is not that connection.
+in. That path is in this package. An API key in settings is not that connection.
 The real-machine check and the broader v1 feature set are tracked in
 [requirements](docs/requirements.md). This
 package is not published to the npm registry. Existing v1 productions continue unchanged.
