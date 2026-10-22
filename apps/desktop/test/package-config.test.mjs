@@ -37,7 +37,7 @@ test("Electron and Forge stay build-time dependencies at the pinned versions", a
   );
   assert.equal(
     manifest.scripts["security:audit"],
-    "npm audit --omit=dev --audit-level=moderate && npm audit --audit-level=moderate"
+    "node ../../scripts/offline-audit.mjs --omit=dev --audit-level=moderate && node ../../scripts/offline-audit.mjs --audit-level=moderate"
   );
   assert.doesNotMatch(mainSource, /TSUGITE_DESKTOP_TEST_|test-hooks/);
 });
