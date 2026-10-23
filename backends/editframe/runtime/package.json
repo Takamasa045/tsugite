@@ -15,7 +15,7 @@
     "@editframe/elements": "0.60.34",
     "@editframe/vite-plugin": "0.60.34",
     "puppeteer-core": "25.10.0",
-    "vite": "8.3.1"
+    "vite": "8.3.4"
   },
   "overrides": {
     "werift": "0.24.4",
