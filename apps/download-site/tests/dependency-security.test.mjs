@@ -17,7 +17,7 @@ const EXPECTED_OVERRIDES = {
   "fflate@0.7.4": "0.7.5",
   nanoid: "3.3.18",
   "postcss": "8.5.25",
-  "react-server-dom-webpack": "19.2.8",
+  "react-server-dom-webpack": "19.3.1",
   "sharp": "0.35.5",
   "source-map-js": "1.2.2",
   "undici": "7.30.1",
@@ -45,9 +45,9 @@ test("pins every reviewed transitive security fix in the manifest and lockfile",
   assert.equal(lockfile.packages["node_modules/@babel/core"].version, "7.29.7");
   assert.equal(lockfile.packages["node_modules/brace-expansion"].version, "5.0.12");
   assert.equal(lockfile.packages["node_modules/minimatch"].version, "10.2.5");
-  assert.equal(lockfile.packages["node_modules/react"].version, "19.2.8");
-  assert.equal(lockfile.packages["node_modules/react-dom"].version, "19.2.8");
-  assert.equal(lockfile.packages["node_modules/react-server-dom-webpack"].version, "19.2.8");
+  assert.equal(lockfile.packages["node_modules/react"].version, "19.3.1");
+  assert.equal(lockfile.packages["node_modules/react-dom"].version, "19.3.1");
+  assert.equal(lockfile.packages["node_modules/react-server-dom-webpack"].version, "19.3.1");
   assert.equal(lockfile.packages["node_modules/fast-uri"].version, "3.1.8");
   assert.equal(lockfile.packages["node_modules/js-yaml"].version, "4.3.2");
   assert.equal(lockfile.packages["node_modules/nanoid"].version, "3.3.18");
