@@ -2,7 +2,7 @@
 
 [日本語](README.ja.md) | [English](README.md) | [中文](README.zh.md) | [한국어](README.ko.md)
 
-新しく始める動画は **v2**（いまの版は `2.0.0-alpha.7`。正式版 2.0.0 ではない）で作ります。計画を人が確認してから生成し、直した好みは次の1本へ残します。既存の `project.yaml` 案件は **v1**（`0.18.0`）の保守として続けます。
+新しく始める動画は **v2**（いまの版は `2.0.0-alpha.7`。正式版 2.0.0 ではない）で作ります。計画を人が確認してから生成し、直した好みは次の1本へ残します。既存の `project.yaml` 案件は **v1**（`0.19.0`）の保守として続けます。
 
 以前のコマンド一覧は [技術リファレンス](docs/reference.ja.md) にあります。
 
@@ -99,7 +99,7 @@ ElevenLabs の効果音（SFX）は、実課金の受け入れが1件記録さ�
 
 ![セットアップ後のローカルランチャー。制作一覧にサンプル「はじめての継手」が見える](docs/guide/assets/launcher-my-first-tsugite.webp)
 
-既存の `project.yaml` 案件は v1 `0.18.0` のまま完走します。入口のコマンドは `node bin/pipeline` で、一覧は [技術リファレンス](docs/reference.ja.md#コマンド) です。Windows の注意は [Windowsネイティブ利用ガイド](docs/windows.md) です。初回セットアップの依頼文は [こちら](docs/onboarding/codex-setup-prompt.ja.md) です。
+既存の `project.yaml` 案件は v1 `0.19.0` のまま完走します。入口のコマンドは `node bin/pipeline` で、一覧は [技術リファレンス](docs/reference.ja.md#コマンド) です。Windows の注意は [Windowsネイティブ利用ガイド](docs/windows.md) です。初回セットアップの依頼文は [こちら](docs/onboarding/codex-setup-prompt.ja.md) です。
 
 v1 では、人が3回止めるまで進みません。唯一の例外は、案件が `gates.gate_2.auto_pass: qc_ok_no_new_assets` を選んだときです。課金・新しい素材・品質の指摘がすべて0のときだけ、素材の確認（Gate 2）は人の OK なしで通ります。
 

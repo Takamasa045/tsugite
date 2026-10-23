@@ -21,7 +21,7 @@ test('real offline sample: page approvals, make, MP4 export, final, duplicate re
   const {root}=await fixture(t); await plan(root);
   await assert.rejects(make(root),/Waiting for plan/);
   const ui=await page(t,root);
-  assert.match(ui.html,/0 provider credits/); assert.match(ui.html,/Plan & storyboard/);
+  assert.match(ui.html,/No new generation\. Uses existing media\./); assert.match(ui.html,/Plan & storyboard/);
   assert.equal((await ui.submit('approve',{stage:'plan'})).status,303);
   assert.equal((await make(root)).made,0);
   const output=await exportVideo(root);
