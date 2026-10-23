@@ -58,7 +58,7 @@
     "react-dom": "19.3.1",
     "remotion": "4.0.536",
     "yaml": "2.9.1",
-    "zod": "^4.5.4"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@tsugite/hyperframes-in-memory-zip": "file:backends/hyperframes/in-memory-zip",
