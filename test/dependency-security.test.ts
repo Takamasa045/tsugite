@@ -17,11 +17,10 @@ async function readJson(path: string): Promise<Record<string, any>> {
 
 describe("dependency security contracts", () => {
   it("pins the reviewed transitive security fixes in the manifest and lockfile", async () => {
-    const [manifest, lockfile, ciWorkflow, desktopWorkflow] = await Promise.all([
+    const [manifest, lockfile, ciWorkflow] = await Promise.all([
       readJson("package.json"),
       readJson("package-lock.json"),
-      readFile(resolve(ROOT, ".github/workflows/ci.yml"), "utf8"),
-      readFile(resolve(ROOT, ".github/workflows/desktop.yml"), "utf8")
+      readFile(resolve(ROOT, ".github/workflows/ci.yml"), "utf8")
     ]);
 
     expect(manifest.overrides).toMatchObject({
@@ -66,10 +65,9 @@ describe("dependency security contracts", () => {
     expect(lockfile.packages["node_modules/sharp"].version).toBe("0.35.5");
     expect(lockfile.packages["node_modules/vite"].version).toBe("8.1.6");
     expect(manifest.scripts["security:audit"]).toBe(
-      "npm audit --omit=dev --audit-level=moderate && npm audit --audit-level=moderate"
+      "node scripts/offline-audit.mjs --omit=dev --audit-level=moderate && node scripts/offline-audit.mjs --audit-level=moderate"
     );
     const ci = YAML.parse(ciWorkflow) as Workflow;
-    const desktop = YAML.parse(desktopWorkflow) as Workflow;
     expect(ci.jobs.check.steps).toContainEqual(
       expect.objectContaining({ run: "npm run security:audit" })
     );
@@ -80,9 +78,6 @@ describe("dependency security contracts", () => {
       expect.objectContaining({
         run: "npm --prefix apps/download-site run security:audit"
       })
-    );
-    expect(desktop.jobs["package-smoke"].steps).toContainEqual(
-      expect.objectContaining({ run: "npm run security:audit" })
     );
   });
 

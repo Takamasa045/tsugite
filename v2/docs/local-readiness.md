@@ -3,11 +3,16 @@
 The alpha is locally usable without accounts. The clean-install sample, sound,
 captions, source mocks, optional Remotion/HyperFrames, real local Whisper, full
 Fast Edit decisions and safe copy/archive migration have direct local evidence.
-Service protocol code has synthetic HTTP evidence and explicit live opt-in;
-actual paid acceptance has not happened. These are different evidence classes.
+Service protocol code has synthetic HTTP evidence and explicit live opt-in.
+ElevenLabs SFX has one recorded paid acceptance. Speech and music paid
+acceptance are open. PixVerse, Kling, and TopView are not accepted by an API
+key: formal 2.0.0 asks for a real-machine check while each service CLI is
+logged in with its subscription, and that check has not happened. These are
+different evidence classes.
 
-The current [alpha source release](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.5)
-is public. The first public prerelease was
+The package version is `2.0.0-alpha.7`. The previous public
+[alpha source release](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.5)
+stays published. This note does not push the new tag. The first public prerelease was
 [alpha.1](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.1).
 The three-OS CI matrix, separate Ubuntu Remotion lane and existing v1
 required CI passed for the published alphas. Gallery/demo/tarball links were
@@ -28,7 +33,7 @@ maintainer decision; a machine fixture cannot honestly complete them:
 | Requirement IDs | Remaining acceptance / decision |
 |---|---|
 | U07, S01 | Three independent novice trials on the three OSs, including human timing; kit in [trial-kit.ja.md](onboarding/trial-kit.ja.md) |
-| B04, P08, P10 | Actual service request/status/final billing and account credit-unit acceptance; paid generation is postponed to the end, lowest-credit service first; Kling may need prepaid credits |
+| B04, P08, P10 | ElevenLabs SFX has one recorded paid acceptance. Speech, music, and B04 reconciliation remain open. PixVerse API-key paid acceptance is not the 2.0.0 gate. The open gate is a real generation and a full export through the subscription CLI. Kling and TopView use that same CLI-login policy. Their paths are in this package. Real-machine checks are open and are not confirmed |
 | P13, P14, P15 | Review/maintain the separated experiments and choose a new labs remote; the current authorization names the existing repository only |
 | D08 | Assign actual maintainers; the trial report form is prepared (D06 is done: #228–#232 are published) |
 | M02, M07, S05 | v1 support duration/branch policy, fork-user notice and the new-production cutover after independent acceptance |

@@ -1,11 +1,25 @@
 # Changelog
 
-## Unreleased
+## 0.19.0 - 2026-10-22
+
+- Release the repository source and agent-service client as 0.19.0 so GitHub Latest includes the Node compatibility and Desktop retirement changes. Independent v2 stays at its published 2.0.0-alpha.7; this is not formal v2 acceptance.
+- Support patched Node 22/24/26 in core runtime checks and CI; retain Node 22.23.4 as the default.
+- Remove the Electron Desktop source and embedded terminal. Browser launcher/Viewer remains available; user projects and installed app data are preserved.
+- Distribute the runtime policy in v2.0.0-alpha.7. Existing v1 projects remain supported.
+
+### Other source changes included
 
 - Stop auto-opening confirmation pages. v2 `plan` now prints the local URL and opens a browser only with `--open`; `--no-open` is accepted and ignored. v1 `review` / `viewer` still open only with `--open` and print the confirmation path so a person can open it before Gate approval.
 - Update video tooling to Remotion 4.0.536, HyperFrames 0.8.173, GSAP 3.15.0, PixVerse CLI 1.4.9, Kling CLI 0.2.3, MiniMax CLI 1.0.28, Editframe 0.60.34, Hypit 0.3.1 and Tesseract 0.4.0. Align v2 renderer peers and bind split HyperFrames runtime files to reviewed plans.
 - Preserve local rendering with the current Editframe SDK/advanced Vite API, adapt Hypit SDK and CLI contracts, keep provider CLI pins effective in execution/Doctor, and retain page-only approvals and service-specific budgets.
 - Clarify that v1 is 0.18.0 (the alpha.1 note that v1 stayed at 0.17.0 is historical), record the HyperFrames pins (both v1 and the v2 adapter now pin 0.8.173 after the tooling update above), and point current v2 docs at alpha.5. Add an owner-facing v1→v2 migration decision record at `v2/docs/migration-plan.ja.md`. Docs only; no runtime, version, or release change.
+
+## 2.0.0-alpha.6 - 2026-10-22 (independent v2 distribution)
+
+- Point new work at v2 in the root README and keep v1 in maintenance. Formal 2.0.0 is not this alpha: ElevenLabs SFX paid acceptance is done, and speech and music stay open. PixVerse API-key paid acceptance is not a criterion.
+- Ship `plugin story consult` from a git checkout and from the npm package. [#246](https://github.com/Takamasa045/tsugite/pull/246) includes `knowledge/story-frameworks/catalog.yaml`. The conversation is [#245](https://github.com/Takamasa045/tsugite/pull/245).
+- Connect PixVerse, Kling, and TopView through each service CLI while that subscription is logged in ([#248](https://github.com/Takamasa045/tsugite/pull/248)). Tests use a fake CLI. The subscription-CLI real-machine check is not done: a real generation and a full export while logged in are still required. This release adds no Tsugite login command, does not bill, and does not generate for real.
+- Package version is `2.0.0-alpha.6`. The previous public tag `v2.0.0-alpha.5` stays as published. The combined release body is `v2/docs/release-notes/github-release-body.md`. This changelog does not push the tag, publish the Release, or publish to npm.
 
 ## 0.18.0 - 2026-10-19
 

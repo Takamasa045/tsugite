@@ -1,3 +1,4 @@
+import { isSupportedNodeVersion } from './node-runtime.mjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -6,9 +7,10 @@ import { hash, json, fail, read, readJSON, write, inside, exists, locked, fileHa
 import { units, validateBudget, reserve, settle, budgetView } from './budget.mjs';
 import { plugin, pluginID } from './plugins.mjs';
 import { taste } from './taste.mjs';
-import {inputClips,audioTracks,captions,arrange} from './timeline.mjs';
+import {inputClips,sourceInputs,audioTracks,captions,arrange} from './timeline.mjs';
 import { sample, probe, command } from '../plugins/local/index.mjs';
 import { normalizeLanguage } from './i18n.mjs';
+import { projectStory, reconfirmAgainst } from './story.mjs';
 
 const stateFile = '.tsugite/state.json';
 const initialState = { version: 1, ledger: { entries: [] }, jobs: {}, renders: {}, events: [] };
@@ -22,7 +24,7 @@ export async function config(root) {
   const bytes = await read(root, 'tsugite.yaml');
   const c = parse(bytes, { maxAliasCount: 0 });
   if (!c || typeof c !== 'object' || Array.isArray(c)) fail('Invalid tsugite.yaml');
-  const allowed = ['version','name','format','length','use','make','export','budget','checks','knowledge','audio','captions','caption_mode','execution','fps','renderer_options','lang'];
+  const allowed = ['version','name','format','length','use','make','export','budget','checks','knowledge','audio','captions','caption_mode','execution','fps','renderer_options','lang','story'];
   for (const key of Object.keys(c)) if (!allowed.includes(key)) fail('Unknown project field: ' + key);
   if (c.lang !== undefined) {
     const language = normalizeLanguage(c.lang);
@@ -44,14 +46,16 @@ export async function config(root) {
   if (c.checks && (Object.keys(c.checks).some(x => x !== 'auto_clips') || typeof c.checks.auto_clips !== 'boolean')) fail('Invalid checks settings');
   const ids = new Set();
   for (const m of c.make) {
-    if (!m || Object.keys(m).some(x => !['id','with','prompt','seconds','kind','options','start','volume'].includes(x))) fail('Invalid make task');
+    if (!m || Object.keys(m).some(x => !['id','with','prompt','seconds','kind','options','start','volume','inputs','track'].includes(x))) fail('Invalid make task');
     pluginID(m.id); pluginID(m.with);
     if (ids.has(m.id) || typeof m.prompt !== 'string' || m.prompt.length > 10000 || !Number.isFinite(m.seconds) || m.seconds <= 0 || m.seconds > 600) fail('Invalid or duplicate make task');
     if(!['video','audio'].includes(m.kind??'video'))fail('Unsupported generated media kind');
+    if(m.track!==undefined&&((m.kind??'video')!=='audio'||!['narration','bgm','sfx'].includes(m.track)))fail('Unsupported generated audio track');
     ids.add(m.id);
   }
   for (const f of c.use) { const media=typeof f==='string'?f:f?.path;if(typeof media!=='string'||!media.startsWith('assets/'))fail('Inputs must be inside assets/');await inside(root,media); }
   for (const f of c.knowledge) { if (typeof f !== 'string' || !f.endsWith('.md')) fail('Knowledge packs must be Markdown paths'); await inside(root, f); }
+  if (c.story !== undefined) { if (typeof c.story !== 'string' || !c.story.endsWith('.json')) fail('Story plan must be a JSON path'); await inside(root, c.story); }
   return { c, configHash: hash(bytes) };
 }
 async function buildPlan(root) {
@@ -66,26 +70,31 @@ async function buildPlan(root) {
   for (const configuredTask of c.make) {
     const { manifest, implementation } = await plugin(root, configuredTask.with, true,{mode:c.execution});
     const task=implementation.normalize?await implementation.normalize(structuredClone(configuredTask),{format:c.format,defaults:manifest.settings.defaults}):configuredTask;
-    const {options:configuredOptions,...configuredFields}=configuredTask,{options:resolvedOptions,...resolvedFields}=task??{};
-    if(json(configuredFields)!==json(resolvedFields))fail('Plugin normalization may only fill source options');
+    const {options:configuredOptions,track:configuredTrack,...configuredFields}=configuredTask,{options:resolvedOptions,track:resolvedTrack,...resolvedFields}=task??{};
+    if(json(configuredFields)!==json(resolvedFields)||configuredTrack!==undefined&&configuredTrack!==resolvedTrack)fail('Plugin normalization may only fill source options');
+    if(resolvedTrack!==undefined&&!['narration','bgm','sfx'].includes(resolvedTrack))fail('Unsupported generated audio track');
     if (!manifest.capabilities.includes('source') || typeof implementation.make !== 'function') fail('Plugin cannot make clips');
     if(manifest.mediaKinds&&!manifest.mediaKinds.includes(task.kind??'video'))fail('Plugin cannot make requested media kind');
-    const quote = await implementation.quote(structuredClone(task));
+    const files=await sourceInputs(root,configuredTask.inputs);
+    const bound=files.length?{...task,inputs:files}:task;
+    const quote = await implementation.quote(structuredClone(bound));
     if(c.execution==='mock'&&quote.credits!==0)fail('Mock plugins must quote zero credits');
     units(quote.credits); pluginID(quote.service);
     plugins[task.with] = manifest;
-    const identity = hash(json({ task, plugin: manifest.digest,settings:manifest.settings,mode:c.execution??'offline', attempt: retries[task.id] ?? 0 }));
-    tasks.push({ ...task, quote, key: identity });
+    const identity = hash(json({ task:bound, plugin: manifest.digest,settings:manifest.settings,mode:c.execution??'offline', attempt: retries[task.id] ?? 0 }));
+    tasks.push({ ...bound, quote, key: identity });
   }
   const clips=arrange(inputs,tasks,c.length);
+  if(clips.some(clip=>clip.still)&&!renderer.implementation.supportsStills)fail('This renderer does not hold still images');
   for(const task of tasks.filter(t=>t.kind==='audio')) {
     const start=task.start??0,volume=task.volume??1;
     if(!Number.isFinite(start)||start<0||start+task.seconds>c.length+0.02||!Number.isFinite(volume)||volume<0||volume>4)fail('Generated audio exceeds timeline');
-    audio.push({id:task.id,path:`.tsugite/media/${task.key}.wav`,seconds:task.seconds,start,offset:0,volume,loop:false,kind:'narration',taskKey:task.key});
+    audio.push({id:task.id,path:`.tsugite/media/${task.key}.wav`,seconds:task.seconds,start,offset:0,volume,loop:false,kind:task.track??'narration',taskKey:task.key});
   }
   const knowledge = [];
   for (const file of c.knowledge) knowledge.push({ path: file, text: await read(root, file) });
-  const plan = { version: 2, configHash, name: c.name, format: c.format, seconds: c.length, renderer: c.export, execution:c.execution??'offline',plugins, inputs, tasks, timeline: { version: 1, format: c.format, seconds: c.length,fps:c.fps??24, clips,audio,captions:subtitle.entries },subtitleSource:subtitle.source, budget: c.budget, checks: c.checks ?? {}, taste: await taste(root), knowledge };
+  const story = c.story ? await projectStory(root, c.story, { seconds: c.length, clipIds: clips.map(clip => clip.id), taskIds: tasks.map(task => task.id) }) : null;
+  const plan = { version: 2, configHash, name: c.name, format: c.format, seconds: c.length, renderer: c.export, execution:c.execution??'offline',plugins, inputs, tasks, timeline: { version: 1, format: c.format, seconds: c.length,fps:c.fps??24, clips,audio,captions:subtitle.entries },subtitleSource:subtitle.source, budget: c.budget, checks: c.checks ?? {}, taste: await taste(root), knowledge, story };
   plan.timeline.captionMode=c.caption_mode??'soft';
   if(c.renderer_options!==undefined){if(!renderer.implementation.supportsOptions)fail('Renderer does not accept renderer_options');plan.timeline.rendererOptions=structuredClone(c.renderer_options);}
   if(renderer.implementation.validate)await renderer.implementation.validate(plan.timeline);
@@ -98,6 +107,13 @@ export async function plan(root) {
     const value = await buildPlan(root);
     let previous;
     try { previous = await read(root,'.tsugite/plan.json'); } catch(e) { if(e.code!=='ENOENT') throw e; }
+    const previousPlan = previous ? JSON.parse(previous) : null;
+    const existing = await readJSON(root, '.tsugite/story-reconfirm.json', null);
+    const storyHash = value.story?.source_hash ?? null;
+    let targets = [];
+    if (previousPlan?.story && value.story && previousPlan.story.source_hash !== storyHash) targets = reconfirmAgainst(previousPlan.story, value.story);
+    else if (existing && existing.storyDigest === storyHash) targets = existing.targets ?? [];
+    await write(root, '.tsugite/story-reconfirm.json', { storyDigest: storyHash, targets });
     if (previous !== undefined && previous !== json(value)) {
       // Preserve superseded records and never revive approval by reverting files.
       for (const stage of ['plan','clips','final']) {
@@ -111,7 +127,7 @@ export async function plan(root) {
     await write(root, '.tsugite/plan.json', value);
     const digest = hash(json(value));
     await write(root, `.tsugite/plans/${digest}.json`, value);
-    return { plan: value, digest, waitingFor: 'plan check', review: 'Use tsugite plan to start the confirmation page; add --open to open it in a browser' };
+    return { plan: value, digest, waitingFor: 'plan check', storyReconfirm: targets, review: 'Use tsugite plan to start the confirmation page; add --open to open it in a browser' };
   });
 }
 export async function currentPlan(root) {
@@ -178,7 +194,8 @@ export async function make(root) {
           s.jobs[task.key].providerJobId=receipt.providerJobId;
           await saveState(root,s,{action:'provider-submitted',id:task.id,providerJobId:receipt.providerJobId});
         };
-        const result = await implementation.make({ task:structuredClone(task), output, sample: p.inputs.length ? await inside(root, p.inputs[0].path) : undefined, idempotencyKey: task.key,onSubmitted });
+        const files=await Promise.all((task.inputs??[]).map(item=>inside(root,item.path)));
+        const result = await implementation.make({ task:structuredClone(task), output, sample: files[0]??(p.inputs.length ? await inside(root, p.inputs[0].path) : undefined), inputs:files, idempotencyKey: task.key,onSubmitted });
         await probe(output,task.kind==='audio'?'audio':'video');
         settle(s.ledger, task.key, result.credits);
         s.jobs[task.key] = { ...s.jobs[task.key],id: task.id, path: relative, status: 'done', hash: await fileHash(root, relative) };
@@ -253,7 +270,7 @@ export async function init(destination) {
 export async function environment(root) {
   const checks = {};
   for (const program of ['ffmpeg','ffprobe']) { try { await command(program, ['-version']); checks[program] = 'ready'; } catch { checks[program] = 'missing'; } }
-  checks.node = Number(process.versions.node.split('.')[0]) >= 22 ? 'ready' : 'unsupported';
+  checks.node = isSupportedNodeVersion(process.versions.node) ? 'ready' : 'unsupported';
   if (root) { try { await buildPlan(root); checks.project = 'ready'; } catch (e) { checks.project = e.message; } }
   return { ok: Object.values(checks).every(x => x === 'ready'), checks };
 }

@@ -6,7 +6,7 @@ manifest（EDL）という単一の契約で接続する「砂時計型」アー
 
 - リポ名: Tsugite（継手）。ソフトウェア version **0.12.0**
 - 状態: 現行契約の要約。詳細な制作フロー正本は `.agents/skills/tsugite/SKILL.md`
-- 1.0 未達: live provider/billing 証拠、packaged Desktop UAT。Windows smoke は GitHub Actions で確認済み
+- 1.0 未達: live provider/billing 証拠（Desktopソースと配布は終了。ブラウザ版を使用）。Windows smoke は GitHub Actions で確認済み
 - MiniMax live submit と Gate 2 `retry_specific` は 1.0 対象外（明示エラー / preflight-only）
 - 初期メモ（2026-07-09）: 解析アダプタ（class: analysis）、非クリエイティブ用途、chapters[] / 話者ラベル、TopView MCP
 

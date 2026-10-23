@@ -18,14 +18,14 @@ afterEach(async () => {
 });
 
 describe("Tsugite bootstrap", () => {
-  it("checks prerequisites without writing files", async () => {
+  it.each(["v22.23.4", "v24.22.1", "v26.12.1"])("checks prerequisites on %s without writing files", async (nodeVersion) => {
     const root = await createRepositoryFixture();
     const commands: BootstrapCommand[] = [];
 
     const report = await runBootstrap({
       argv: ["--check"],
       cwd: root,
-      nodeVersion: "v22.12.0",
+      nodeVersion,
       platform: "darwin",
       environment: { SHELL: "/bin/zsh" },
       runCommand: createSuccessfulRunner(commands)
@@ -35,7 +35,7 @@ describe("Tsugite bootstrap", () => {
     expect(report.mode).toBe("check");
     expect(report.checks).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "git", ok: true }),
-      expect.objectContaining({ id: "node", ok: true, version: "v22.12.0" }),
+      expect.objectContaining({ id: "node", ok: true, version: nodeVersion }),
       expect.objectContaining({ id: "npm", ok: true, version: "10.9.8" }),
       expect.objectContaining({ id: "ffmpeg", ok: true }),
       expect.objectContaining({ id: "ffprobe", ok: true })
@@ -58,7 +58,7 @@ describe("Tsugite bootstrap", () => {
     const report = await runBootstrap({
       argv: [],
       cwd: root,
-      nodeVersion: "v22.22.3",
+      nodeVersion: "v22.23.4",
       platform: "darwin",
       environment: { SHELL: "/bin/zsh" },
       runCommand: createSuccessfulRunner(commands)
@@ -107,7 +107,7 @@ describe("Tsugite bootstrap", () => {
   it.each([
     { nodeVersion: "v22.11.0", npmVersion: "10.9.8", failedId: "node" },
     { nodeVersion: "v23.0.0", npmVersion: "10.9.8", failedId: "node" },
-    { nodeVersion: "v22.12.0", npmVersion: "9.9.0", failedId: "npm" }
+    { nodeVersion: "v22.23.4", npmVersion: "9.9.0", failedId: "npm" }
   ])("stops before changes when a required version is unsupported", async ({
     nodeVersion,
     npmVersion,
@@ -139,7 +139,7 @@ describe("Tsugite bootstrap", () => {
     const report = await runBootstrap({
       argv: [],
       cwd: root,
-      nodeVersion: "v22.12.0",
+      nodeVersion: "v22.23.4",
       platform: "linux",
       environment: { SHELL: "/bin/bash" },
       runCommand: runner
@@ -159,7 +159,7 @@ describe("Tsugite bootstrap", () => {
     const report = await runBootstrap({
       argv: [],
       cwd: root,
-      nodeVersion: "v22.12.0",
+      nodeVersion: "v22.23.4",
       platform: "darwin",
       environment: {},
       runCommand: runner
@@ -182,7 +182,7 @@ describe("Tsugite bootstrap", () => {
     const report = await runBootstrap({
       argv: [],
       cwd: root,
-      nodeVersion: "v22.12.0",
+      nodeVersion: "v22.23.4",
       platform: "win32",
       environment: { ComSpec: "C:\\Windows\\System32\\cmd.exe" },
       runCommand: createSuccessfulRunner(commands, {
@@ -206,7 +206,7 @@ describe("Tsugite bootstrap", () => {
     const report = await runBootstrap({
       argv: [],
       cwd: root,
-      nodeVersion: "v22.12.0",
+      nodeVersion: "v22.23.4",
       platform: "darwin",
       environment: {},
       runCommand: createSuccessfulRunner(commands)
@@ -231,7 +231,7 @@ describe("Tsugite bootstrap", () => {
     const report = await runBootstrap({
       argv: [],
       cwd: root,
-      nodeVersion: "v22.12.0",
+      nodeVersion: "v22.23.4",
       platform: "darwin",
       environment: {},
       runCommand: createSuccessfulRunner(commands)
@@ -252,7 +252,7 @@ describe("Tsugite bootstrap", () => {
     const first = await runBootstrap({
       argv: [],
       cwd: root,
-      nodeVersion: "v22.12.0",
+      nodeVersion: "v22.23.4",
       platform: "darwin",
       environment: {},
       runCommand: createSuccessfulRunner(firstCommands)
@@ -269,7 +269,7 @@ describe("Tsugite bootstrap", () => {
     const second = await runBootstrap({
       argv: [],
       cwd: root,
-      nodeVersion: "v22.12.0",
+      nodeVersion: "v22.23.4",
       platform: "darwin",
       environment: {},
       runCommand: createSuccessfulRunner(secondCommands)
@@ -301,7 +301,7 @@ describe("Tsugite bootstrap", () => {
     const report = await runBootstrap({
       argv: [],
       cwd: root,
-      nodeVersion: "v22.12.0",
+      nodeVersion: "v22.23.4",
       platform: "darwin",
       environment: {},
       runCommand: createSuccessfulRunner(commands)
@@ -322,7 +322,7 @@ describe("Tsugite bootstrap", () => {
     const report = await runBootstrap({
       argv: [],
       cwd: root,
-      nodeVersion: "v22.12.0",
+      nodeVersion: "v22.23.4",
       platform: "darwin",
       environment: {},
       runCommand: createSuccessfulRunner(commands)
@@ -344,7 +344,7 @@ describe("Tsugite bootstrap", () => {
     const report = await runBootstrap({
       argv: [],
       cwd: root,
-      nodeVersion: "v22.12.0",
+      nodeVersion: "v22.23.4",
       platform: "darwin",
       environment: {},
       runCommand: createSuccessfulRunner(commands, {
@@ -366,7 +366,7 @@ describe("Tsugite bootstrap", () => {
     const report = await runBootstrap({
       argv: ["--open"],
       cwd: root,
-      nodeVersion: "v22.12.0",
+      nodeVersion: "v22.23.4",
       platform: "darwin",
       environment: {},
       runCommand: createSuccessfulRunner(commands, {
@@ -430,7 +430,7 @@ describe("Tsugite bootstrap", () => {
     const report = await runBootstrap({
       argv: [],
       cwd: root,
-      nodeVersion: "v22.12.0",
+      nodeVersion: "v22.23.4",
       platform: "darwin",
       environment: {},
       runCommand: createSuccessfulRunner(commands, {
@@ -454,7 +454,7 @@ describe("Tsugite bootstrap", () => {
     const report = await runBootstrap({
       argv: [],
       cwd: root,
-      nodeVersion: "v22.12.0",
+      nodeVersion: "v22.23.4",
       platform: "win32",
       environment: { ComSpec: "C:\\Windows\\System32\\cmd.exe" },
       runCommand: createSuccessfulRunner(commands)
@@ -482,7 +482,7 @@ describe("Tsugite bootstrap", () => {
     const report = await runBootstrap({
       argv: ["--json"],
       cwd: root,
-      nodeVersion: "v22.12.0",
+      nodeVersion: "v22.23.4",
       platform: "darwin",
       environment: {
         TSUGITE_TEST_TOKEN: secret,
@@ -520,7 +520,7 @@ describe("Tsugite bootstrap", () => {
     const report = await runBootstrap({
       argv: ["--check"],
       cwd: root,
-      nodeVersion: "v22.12.0",
+      nodeVersion: "v22.23.4",
       platform: "darwin",
       environment: {},
       runCommand: createSuccessfulRunner([])

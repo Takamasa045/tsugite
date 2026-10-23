@@ -71,7 +71,7 @@ inspection; no forced stale-lock takeover is offered. Do not edit state casually
 Live source entry points require an explicitly enabled private connection and
 a plan approved in the page. Credential values are resolved only at execution.
 Only zero-credit renderers are accepted. Transport tests use synthetic HTTP and
-local mock credits; actual paid acceptance is unverified. Explicit mock mode
+local mock credits. ElevenLabs SFX has one recorded paid acceptance; other live acceptance is not claimed here. PixVerse, Kling, and TopView formal checks use a logged-in subscription CLI rather than an API key in settings, and that check is open. Explicit mock mode
 loads synthetic zero-cost implementations and is labeled in the page. Remote
 billing is not forced by a local quote: unknown charges remain reserved pending
 page reconciliation. See [connections](connections.md) for the exact protocol

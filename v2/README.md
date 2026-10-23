@@ -19,15 +19,20 @@ quality or time gains over a normal AI request have not been established.
 The six-second sample below checks installation.
 
 **Local alpha:** sound, captions, local editing, optional Remotion rendering and
-source-plugin mocks work. Documented HTTP transports have synthetic fixture tests; live paid acceptance and the broader
-v1 feature set are still tracked in [requirements](docs/requirements.md). This
+source-plugin mocks work. Documented HTTP transports have synthetic fixture tests.
+ElevenLabs SFX has one recorded paid acceptance. PixVerse, Kling, and TopView
+are used through each service's CLI while that subscription is already logged
+in. That path is in this package. An API key in settings is not that connection.
+The real-machine check and the broader v1 feature set are tracked in
+[requirements](docs/requirements.md). This
 package is not published to the npm registry. Existing v1 productions continue unchanged.
+The repository entry for new work is the [root README](../README.md).
 
-Download the alpha tarball and SHA256SUMS from the [source-only alpha release](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.5). This release uploads no demo videos or images.
+Download the alpha tarball and SHA256SUMS from the [source-only alpha release](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.7). This release uploads no demo videos or images.
 Install without cloning or replacing your global tools:
 
 ```sh
-npm install --prefix ./tsugite-local --ignore-scripts ./tsugite-2.0.0-alpha.5.tgz
+npm install --prefix ./tsugite-local --ignore-scripts ./tsugite-2.0.0-alpha.7.tgz
 node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs init ./my-video
 node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs plan --project ./my-video
 ```
@@ -39,7 +44,7 @@ external acceptance.
 
 ## Try the offline sample
 
-Requires Node.js 22.12+ and FFmpeg/FFprobe with libx264 on PATH. From a checkout:
+Recommended: Node.js 22.23.4 (patched 24/26 are compatibility candidates) and FFmpeg/FFprobe with libx264 on PATH. From a checkout:
 
 ```sh
 npm --prefix /path/to/tsugite/v2 ci --ignore-scripts
@@ -103,7 +108,8 @@ Offline mode rejects declared network plugins. Live mode requires an explicitly 
 
 Everything stays in the video folder: `assets/`, `taste/`, `out/`, and generated
 plans, approvals, jobs and budget history in `.tsugite/`. Common preferences can
-live in `~/.tsugite/taste/` (`TSUGITE_HOME` overrides it for isolated tests).
+live in `~/.tsugite/taste/` (`TSUGITE_HOME` overrides that private home).
+v2 does not read `TSUGITE_PROJECTS_HOME`.
 `note --global` stores a global observation. Rule text in the global rules file
 is included in every plan. Nothing is uploaded by the core.
 
@@ -112,6 +118,12 @@ is included in every plan. Nothing is uploaded by the core.
 `init`, `check`, `plan`, `make`, `export`, `note`, `clean`, `plugin` are the eight
 workflow commands. All operation results are JSON; `--json` is accepted for
 agent compatibility. `check --status` reads current checks, jobs and budget.
+`plugin story consult` can discuss structure before any media exists. It reads
+the catalog shipped in this package (`knowledge/story-frameworks/catalog.yaml`)
+and the MIT license and source list in `knowledge/story-frameworks/NOTICE.md`.
+It does not generate, send, spend, or approve. Binding a story plan later
+invalidates an old plan approval and does not regenerate media. See
+[story consult](docs/story-consult.ja.md).
 `clean` only previews; confirmation is in the page and moves old generated media
 into project trash. It never irreversibly deletes originals.
 
@@ -156,7 +168,9 @@ See [architecture](docs/architecture.md) for recovery and trust limits,
 [plugin SDK and license guidance](docs/plugins.md), the exhaustive
 [requirement tracker](docs/requirements.md) for remaining work, and the
 owner-facing [v1→v2 migration decision record](docs/migration-plan.ja.md)
-(2026-10-19: recommended split adopted; paid acceptance last).
+(2026-10-19: recommended split adopted; paid acceptance last.
+2026-10-22: PixVerse formal acceptance is a subscription-CLI real-machine check,
+not an API-key paid call). English copy: [migration-plan.md](docs/migration-plan.md).
 
 ```sh
 cd /path/to/tsugite/v2

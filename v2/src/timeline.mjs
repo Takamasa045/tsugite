@@ -1,15 +1,41 @@
+import fs from 'node:fs/promises';
 import {fail,inside,fileHash,read} from './files.mjs';
 import {probe} from '../plugins/local/index.mjs';
 
 const number=(value,min,max,label)=>{if(!Number.isFinite(value)||value<min||value>max)fail('Invalid '+label);return value;};
 const asset=async(root,p)=>{if(typeof p!=='string'||!p.startsWith('assets/'))fail('Media must be inside assets/');return inside(root,p);};
+export async function sourceInputs(root,value) {
+  if(value===undefined)return [];
+  if(!Array.isArray(value)||value.length>8)fail('Make inputs must be 0–8 local files');
+  const result=[];
+  for(const item of value){
+    const media=typeof item==='string'?item:item?.path;
+    if(typeof media!=='string'||!media.startsWith('assets/'))fail('Make inputs must be inside assets/');
+    const file=await asset(root,media),stat=await fs.stat(file);
+    if(stat.size>32*1024*1024)fail('Make input exceeds 32 MB');
+    const bound={path:media,hash:await fileHash(root,media),bytes:stat.size};
+    try{
+      const metadata=await probe(file);
+      if(Number.isFinite(metadata.seconds)&&metadata.seconds>0)bound.seconds=metadata.seconds;
+      if(Number.isInteger(metadata.width)&&metadata.width>0)bound.width=metadata.width;
+      if(Number.isInteger(metadata.height)&&metadata.height>0)bound.height=metadata.height;
+    }catch{}
+    result.push(bound);
+  }
+  return result;
+}
 export async function inputClips(root,use) {
   const result=[];
   for(let i=0;i<use.length;i++){
     const value=use[i],c=typeof value==='string'?{path:value,loop:true}:value;
     if(!c||Object.keys(c).some(k=>!['path','start','seconds','loop','audio','volume'].includes(k)))fail('Invalid local clip');
     const metadata=await probe(await asset(root,c.path));
-    const start=number(c.start??0,0,metadata.seconds,'clip start');
+    if(metadata.still){
+      if(c.seconds===undefined)fail('Still images need explicit seconds');
+      if(c.audio)fail('Still images have no source audio');
+      if((c.start??0)!==0)fail('Still images have no trim start');
+    }
+    const start=number(c.start??0,0,metadata.still?0:metadata.seconds,'clip start');
     if(c.seconds!==undefined)number(c.seconds,0.001,3600,'clip seconds');
     if(c.audio!==undefined&&typeof c.audio!=='boolean'||c.loop!==undefined&&typeof c.loop!=='boolean')fail('Invalid clip flags');
     if(c.audio&&!metadata.hasAudio)fail('Clip has no requested source audio');
@@ -55,14 +81,15 @@ export async function captions(root,value,total) {
 }
 export function arrange(inputs,tasks,total) {
   const videos=tasks.filter(t=>t.kind!=='audio');
+  if(!inputs.length&&!videos.length)fail('Audio-only projects need a local video clip, generated video, or still image with explicit seconds');
   const fixed=inputs.reduce((s,c)=>s+(c.duration??0),0)+videos.reduce((s,t)=>s+t.seconds,0),flex=inputs.filter(c=>c.duration===null).length;
   if(fixed>total+0.001||(!flex&&Math.abs(fixed-total)>0.02))fail('Authored clip durations must fit requested length');
   const per=flex?(total-fixed)/flex:0;if(flex&&per<=0)fail('No time remains for local clips');
   const clips=inputs.map(c=>{
-    const seconds=c.duration??per;if(!c.loop&&c.start+seconds>c.seconds+0.02)fail('Clip trim exceeds source duration');
-    return {id:c.id,path:c.path,hash:c.hash,seconds,start:c.start,loop:c.loop,audio:c.audio,volume:c.volume};
+    const seconds=c.duration??per;if(!c.still&&!c.loop&&c.start+seconds>c.seconds+0.02)fail('Clip trim exceeds source duration');
+    return {id:c.id,path:c.path,hash:c.hash,seconds,start:c.start,loop:c.loop,audio:c.audio,volume:c.volume,...(c.still?{still:true}:{})};
   });
-  for(const task of videos)clips.push({id:task.id,path:`.tsugite/media/${task.key}.mp4`,seconds:task.seconds,start:0,loop:false,audio:false,volume:1,taskKey:task.key});
+  for(const task of videos)clips.push({id:task.id,path:`.tsugite/media/${task.key}.mp4`,seconds:task.seconds,start:0,loop:false,audio:task.options?.audio===true,volume:1,taskKey:task.key});
   if(!clips.length)fail('Timeline needs at least one video clip');
   return clips;
 }

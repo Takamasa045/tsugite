@@ -37,6 +37,7 @@ export function reserve(ledger, requests, budget) {
 export function settle(ledger, id, actual) {
   const entry = ledger.entries.find(x => x.id === id);
   if (!entry || entry.status !== 'started') fail('Reservation is not executing');
+  if(actual===null){entry.status='uncertain';return;}
   if (units(actual) > units(entry.credits)) fail('Plugin exceeded reservation; reconcile uncertain outcome');
   entry.actual = actual;
   entry.status = 'settled';

@@ -1,8 +1,8 @@
-# v2 第三者試用キット（alpha.5）
+# v2 第三者試用キット（alpha.6）
 
 作者以外の3人（macOS / Windows / Linux を1人ずつ）が、課金なしで最初の結果まで進むための短い手順です。品質比較や有料サービス確認ではありません。個人情報・APIキー・自宅パス・私有メディアは記録にも issue にも載せないでください。
 
-対象の配布は [v2.0.0-alpha.5](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.5) です。npm レジストリからは入れません。既存の `project.yaml` 案件は触らないでください。
+対象の配布は [v2.0.0-alpha.7](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.7) です。npm レジストリからは入れません。既存の `project.yaml` 案件は触らないでください。
 
 詳しい画面説明は [はじめての継手](first-video.ja.md) を正本にします。このキットは時間計測と報告だけを固定します。
 
@@ -10,7 +10,7 @@
 
 次が使えることを、計測を始める前に確認します。導入そのものは10分に含めません。
 
-- Node.js 22.12 以上の 22.x、npm 10 以上
+- Node.js 22.23.4 以上の 22.x、npm 10 以上
 - FFmpeg と FFprobe（`libx264` があること）
 - ブラウザ（確認ページを開くため）
 - 配布ファイルを置く、空の作業フォルダ
@@ -34,36 +34,36 @@ ffmpeg -hide_banner -encoders
 5. 10分を超えても最後まで進めて構いません。超えた事実と、最初に詰まった点を記録します。
 6. 外部生成、ログイン、クレジット消費、既存案件の変更はしません。
 
-## alpha.5 の手順（この順だけ）
+## alpha.6 の手順（この順だけ）
 
 作業フォルダは新しく、空のものを使います。リポジトリの `projects/` には書きません。
 
-1. [alpha.5 の Assets](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.5) から `tsugite-2.0.0-alpha.5.tgz` と `SHA256SUMS` を保存する。
-2. 照合する。`SHA256SUMS` に tarball 以外の行がある場合、未取得ファイルで失敗します。取得した tarball の行だけを照合します（いまの alpha.5 は tarball 1行です）。
+1. [alpha.6 の Assets](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.7) から `tsugite-2.0.0-alpha.7.tgz` と `SHA256SUMS` を保存する。
+2. 照合する。`SHA256SUMS` に tarball 以外の行がある場合、未取得ファイルで失敗します。取得した tarball の行だけを照合します（いまの alpha.6 は tarball 1行です）。
 
 macOS:
 
 ```sh
-grep 'tsugite-2.0.0-alpha.5.tgz$' SHA256SUMS | shasum -a 256 -c
+grep 'tsugite-2.0.0-alpha.7.tgz$' SHA256SUMS | shasum -a 256 -c
 ```
 
 Linux:
 
 ```sh
-grep 'tsugite-2.0.0-alpha.5.tgz$' SHA256SUMS | sha256sum -c
+grep 'tsugite-2.0.0-alpha.7.tgz$' SHA256SUMS | sha256sum -c
 ```
 
 Windows PowerShell:
 
 ```powershell
-Get-FileHash .\tsugite-2.0.0-alpha.5.tgz -Algorithm SHA256
-Select-String -Path .\SHA256SUMS -Pattern 'tsugite-2.0.0-alpha.5.tgz$'
+Get-FileHash .\tsugite-2.0.0-alpha.7.tgz -Algorithm SHA256
+Select-String -Path .\SHA256SUMS -Pattern 'tsugite-2.0.0-alpha.7.tgz$'
 ```
 
 3. 導入してサンプルを作る。
 
 ```sh
-npm install --prefix ./tsugite-local --ignore-scripts ./tsugite-2.0.0-alpha.5.tgz
+npm install --prefix ./tsugite-local --ignore-scripts ./tsugite-2.0.0-alpha.7.tgz
 node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs init ./my-video
 node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs check --project ./my-video
 node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs plan --project ./my-video
@@ -95,7 +95,7 @@ node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs export --project ./my-
 | 最初に詰まった点（手順番号と短い事実） | |
 | 詰まった直後に見えた赤色を消したエラー文 | |
 | 確認ページは開いたか | はい / いいえ |
-| 使ったのは公開 alpha.5 か、手元のリポジトリか | |
+| 使ったのは公開 alpha.6 か、手元のリポジトリか | |
 
 ## 結果の送り方
 

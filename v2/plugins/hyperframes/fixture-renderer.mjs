@@ -5,7 +5,14 @@ export async function command(program, args, options = {}) {
   const executable=program==='ffmpeg'?(process.env.TSUGITE_FFMPEG||program):program==='ffprobe'?(process.env.TSUGITE_FFPROBE||program):program;
   return exec(executable, args, { timeout: 120000, maxBuffer: 2e6, windowsHide: true,...options });
 }
+export function isStillImage(file){return /\.(png|jpe?g|webp)$/i.test(file);}
 export async function probe(file,kind='video') {
+  if(kind==='image'||(kind==='video'&&isStillImage(file))){
+    const {stdout}=await command('ffprobe',['-v','error','-protocol_whitelist','file,pipe','-select_streams','v:0','-show_entries','stream=width,height','-of','json',file]);
+    const video=JSON.parse(stdout).streams?.find(x=>x.width&&x.height);
+    if(!video)throw new Error('Input must contain a still image');
+    return {seconds:0,width:video.width,height:video.height,hasAudio:false,hasCaptions:false,still:true};
+  }
   const { stdout } = await command('ffprobe', ['-v', 'error', '-protocol_whitelist', 'file,pipe', '-format_whitelist', 'mov,matroska,webm,avi,mpegts,wav,mp3,flac,ogg', '-show_format', '-show_streams', '-of', 'json', file]);
   const data = JSON.parse(stdout), video = data.streams.find(x => x.codec_type === 'video');
   const audio=data.streams.find(x=>x.codec_type==='audio');
@@ -29,7 +36,9 @@ export default {
     for (let i = 0; i < inputs.length; i++) {
       const file = join(scratch, `cut-${i}.mp4`);
       const clip=timeline.clips[i];
-      await command('ffmpeg', ['-nostdin', '-v', 'error', '-n', '-protocol_whitelist', 'file,pipe', '-format_whitelist', 'mov,matroska,webm,avi,mpegts', ...(clip.loop?['-stream_loop','-1']:[]),'-ss',String(clip.start??0),'-i', inputs[i],'-f','lavfi','-i','anullsrc=r=48000:cl=stereo','-map','0:v:0','-map',clip.audio?'0:a:0':'1:a:0', '-t', String(clip.seconds),'-af',`volume=${clip.volume??1}`,'-c:a','aac','-ar','48000','-ac','2', '-vf', `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`, '-r',String(timeline.fps??24), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-threads', '2', file]);
+      const still=clip.still===true||isStillImage(inputs[i]);
+      const source=still?['-protocol_whitelist','file,pipe','-loop','1','-i',inputs[i]]:['-protocol_whitelist','file,pipe','-format_whitelist','mov,matroska,webm,avi,mpegts', ...(clip.loop?['-stream_loop','-1']:[]),'-ss',String(clip.start??0),'-i', inputs[i]];
+      await command('ffmpeg', ['-nostdin', '-v', 'error', '-n', ...source,'-f','lavfi','-i','anullsrc=r=48000:cl=stereo','-map','0:v:0','-map',clip.audio?'0:a:0':'1:a:0', '-t', String(clip.seconds),'-af',`volume=${clip.volume??1}`,'-c:a','aac','-ar','48000','-ac','2', '-vf', `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`, '-r',String(timeline.fps??24), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-threads', '2', file]);
       clips.push(`file 'cut-${i}.mp4'`);
     }
     const list = join(scratch, 'list.txt');

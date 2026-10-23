@@ -1,28 +1,10 @@
-import { spawnSync } from "node:child_process";
+import { main } from '../../../scripts/offline-audit.mjs';
 
-const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-const ATTEMPTS = 2;
-const AUDIT_TIMEOUT_MS = 45_000;
-const RETRY_WAIT_MS = 5_000;
-
-function runAudit(args, required) {
-  for (let attempt = 1; attempt <= ATTEMPTS; attempt += 1) {
-    const result = spawnSync(npm, ["audit", ...args], {
-      stdio: "inherit",
-      shell: false,
-      timeout: AUDIT_TIMEOUT_MS,
-      killSignal: "SIGKILL"
-    });
-    if (result.status === 0) return true;
-    if (attempt === ATTEMPTS) {
-      if (required) process.exit(result.status === null ? 1 : result.status);
-      console.warn(`optional npm audit ${args.join(" ")} failed (findings or registry error); inspect the output above`);
-      return false;
-    }
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, RETRY_WAIT_MS);
-  }
-  return false;
+try {
+  const production = await main(['--omit=dev', '--audit-level=moderate']);
+  if (production) process.exitCode = production;
+  else process.exitCode = await main(['--audit-level=moderate', '--informational']);
+} catch (error) {
+  console.error(error.message);
+  process.exitCode = 2;
 }
-
-runAudit(["--omit=dev", "--audit-level=moderate"], true);
-runAudit(["--audit-level=moderate"], false);

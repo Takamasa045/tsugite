@@ -6,7 +6,7 @@ Tsugite supports native Windows PowerShell. WSL and Git Bash are optional and ar
 
 - Windows 11 or a currently supported Windows release
 - Git
-- Node.js 22.12 or newer in the 22.x LTS line; Node 23 or newer is not supported by this release
+- Node.js 22.23.4 or newer in the 22.x LTS line; 24.22.1+ and 26.12.1+ are compatibility candidates; see [runtime policy](node-runtime.md)
 - npm 10 or newer
 - FFmpeg with both `ffmpeg` and `ffprobe` on `PATH`
 

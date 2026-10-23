@@ -55,7 +55,7 @@ No long-running process is required for doctor / validate / plan / review.
 From the repository root, after a clone:
 
 ```sh
-# Prerequisites observed in this repo: Node.js >=22.12 <23, npm >=10, ffmpeg + ffprobe on PATH
+# Prerequisites observed in this repo: Node.js 22.23.4 (default); see docs/node-runtime.md for 24/26 compatibility candidates, npm >=10, ffmpeg + ffprobe on PATH
 node --version
 npm --version
 ffmpeg -version | head -n 1

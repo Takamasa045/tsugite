@@ -1,4 +1,5 @@
 import {createTransport,payload} from './transport.mjs';
+import {createCli} from './cli.mjs';
 import definition from './contract.json' with {type:'json'};
 export function request(task) {
   if(typeof task.prompt!=='string'||!task.prompt.trim()||!Number.isFinite(task.seconds)||task.seconds<=0)throw new Error('Invalid source request');
@@ -20,5 +21,6 @@ export function reconcile(receipt) {
   return {providerJobId:receipt.provider_job_id,status:receipt.status,actualCredits:known?receipt.credits_charged:null,releaseReservation:receipt.status==='failed'&&known&&receipt.credits_charged===0};
 }
 export function normalize(task,{format='16:9',defaults={}}={}){const options={model:'kling-3.0',quality:'720p',aspect:format,...defaults,...task.options};const value={...task,options};request(value);payload(value,'validation-only');return value;}
-const implementation={normalize,quote(task){request(task);const maximum=task.options?.max_credits;if(!Number.isFinite(maximum)||maximum<=0)throw new Error('An explicit positive provider credit maximum is required');return {service:'kling',credits:maximum};},connect(connection){return {...implementation,async make(args){return createTransport({...connection,key:connection.credential(),fetch:globalThis.fetch}).make(args);}};},async make(){throw new Error('Live execution is disabled without an explicit configured connection');}};
+export function normalizeCli(task,context={}){const model=task.options?.model??context.defaults?.model??'kling-3.0';if(!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(model))throw new Error('Invalid Kling CLI model');const checked=normalize({...task,options:{...task.options,model:'kling-3.0'}},context);return {...checked,options:{...checked.options,model}};}
+const implementation={normalize,quote(task){request(task);const maximum=task.options?.max_credits;if(!Number.isFinite(maximum)||maximum<=0)throw new Error('An explicit positive provider credit maximum is required');return {service:'kling',credits:maximum};},connect(connection){const cli=connection.transport==='cli';return {...implementation,normalize(task,context){return cli?normalizeCli(task,context):normalize(task,context);},async make(args){return cli?createCli({command:connection.command}).make(args):createTransport({...connection,key:connection.credential(),fetch:globalThis.fetch}).make(args);}};},async make(){throw new Error('Live execution is disabled without an explicit configured connection');}};
 export default implementation;

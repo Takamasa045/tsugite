@@ -6,25 +6,25 @@
 
 最初は追加の動画ツールを入れず、このサンプルで操作を確かめます。実際の生成サービスの品質や接続を試すものではありません。エージェント自体の利用料金は別です。
 
-[READMEに戻る](../../README.ja.md#はじめての方はこちら) · [困ったとき](#困ったとき) · [英語の導入手順](../install.md)
+[READMEに戻る](../../../README.ja.md#はじめ方) · [困ったとき](#困ったとき) · [英語の導入手順](../install.md)
 
 ## どこから始める？
 
-- **まだ継手がない：** 下の「準備するもの」から読み、[公開済みalpha.5を導入](#公開済みalpha5を導入する場合)します。
+- **まだ継手がない：** 下の「準備するもの」から読み、[公開済みalpha.6を導入](#公開済みalpha6を導入する場合)します。
 - **すでにリポジトリを開いている：** [ローカル版の手順](#すでにリポジトリが手元にある場合)へ進みます。
 - **コマンド操作を任せたい：** [エージェントへの依頼文](#エージェントに準備を頼む場合)を使えます。確認ページでの承認は自分で行います。
-- **既存の`project.yaml`案件を使いたい：** [v1の案内](https://github.com/Takamasa045/tsugite/blob/v2.0.0-alpha.5/README.ja.md#v1の機能と詳しい使い方)へ戻ってください。この手順で既存案件を置き換えないでください。
+- **既存の`project.yaml`案件を使いたい：** [v1の案内](../../../README.ja.md#v1-は保守として残る)へ戻ってください。この手順で既存案件を置き換えないでください。
 
-v2は開発途中のアルファ版です。実課金サービスの受け入れ確認や、第三者が初めて使う試験はまだ完了していません。ここにある手順の確認と、第三者による使いやすさの検証は別です。
+v2は開発途中のアルファ版です。ElevenLabs の SFX は実課金 1 件が記録されています。PixVerse の実生成と通し書き出しは、サブスク CLI での実機確認として未了です。第三者の初回試験も未了です。ここにある手順の確認と、第三者による使いやすさの検証は別です。
 
 ## 準備するもの
 
-- **Node.jsとnpm：** コマンドで継手を動かすためのソフト。Node.js 22.12以上の22.x、npm 10以上を使います。単体のv2配布物はNode.js 22.12以上に対応しますが、リポジトリ本体は22.xを指定しています。
+- **Node.jsとnpm：** コマンドで継手を動かすためのソフト。Node.js 22.23.4以上の22.x、npm 10以上を使います。24.22.1以上の24系・26.12.1以上の26系も互換性検証対象ですが、既定は22.23.4です。
 - **FFmpegとFFprobe：** 動画の作成と検査に使うソフト。FFmpegには`libx264`というMP4用の映像圧縮機能が必要です。
 - **ターミナル：** コマンドを入力する画面。macOSなら「ターミナル」、WindowsならPowerShellなどを使います。
 - **インターネット：** 配布ファイルと依存ソフトの取得に使います。準備が済んだ後のサンプル制作はオフラインです。
 
-リポジトリをGitで取得する場合だけGitも必要です。公開alpha.5のファイルから試す経路ではGitは不要です。Remotion、HyperFrames、PixVerseなどは最初のサンプルに必要ありません。
+リポジトリをGitで取得する場合だけGitも必要です。公開alpha.6のファイルから試す経路ではGitは不要です。Remotion、HyperFrames、PixVerseなどは最初のサンプルに必要ありません。
 
 ターミナルで次を1行ずつ実行して、ソフトの版が表示されるか確認します。
 
@@ -48,12 +48,12 @@ Codex・Claude Codeなど、**ローカルのフォルダを読み書きし、�
 継手 / Tsugite v2で、外部サービスを使わない6秒のサンプルを試したいです。
 このガイドを読んで、使える版と環境を確認し、準備を手伝ってください。
 公開済み版の案内：
-https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.5
+https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.7
 
 すでにリポジトリがある場合は、このフォルダのAGENTS.mdと
 v2/skills/tsugite/SKILL.md、docs/onboarding/first-video.ja.mdを読んでください。
-ローカル更新と公開済みalpha.5を区別し、既存のフォルダは上書きしないでください。
-まだない場合は、公開済みalpha.5の配布ファイルとSHA256SUMSを取得し、
+ローカル更新と公開済みalpha.6を区別し、既存のフォルダは上書きしないでください。
+まだない場合は、公開済みalpha.6の配布ファイルとSHA256SUMSを取得し、
 チェックサム確認後に新しいフォルダへローカル導入してください。
 
 最初にNode.js・npm・FFmpeg・FFprobeを確認してください。
@@ -63,15 +63,15 @@ v2/skills/tsugite/SKILL.md、docs/onboarding/first-video.ja.mdを読んでくだ
 外部生成、クレジット消費、認証変更、既存案件の変更、公開、pushはしないでください。
 ```
 
-alpha.5の配布ファイルには、日本語READMEとこの導入ガイドも含まれます。エージェントには、導入先のREADME.ja.mdとskills/tsugite/SKILL.mdを読んでもらえます。すでにローカルで使える版がある場合、公開版の導入に置き換える必要はありません。
+alpha.6の配布ファイルには、日本語READMEとこの導入ガイドも含まれます。エージェントには、導入先のREADME.ja.mdとskills/tsugite/SKILL.mdを読んでもらえます。すでにローカルで使える版がある場合、公開版の導入に置き換える必要はありません。
 
-## 公開済みalpha.5を導入する場合
+## 公開済みalpha.6を導入する場合
 
 ### 1. ファイルを取得して確かめる
 
-[GitHubのalpha.5配布ページ](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.5)の「Assets」から、次の2つを新しい空の作業フォルダに保存します。
+[GitHubのalpha.6配布ページ](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.7)の「Assets」から、次の2つを新しい空の作業フォルダに保存します。
 
-- `tsugite-2.0.0-alpha.5.tgz`：継手のプログラム。
+- `tsugite-2.0.0-alpha.7.tgz`：継手のプログラム。
 - `SHA256SUMS`：ダウンロードしたファイルが一致するか確かめるための値。
 
 この配布はプログラムと照合用ファイルのみです。完成サンプルの動画・画像やDesktopインストーラーは含みません。**npmレジストリには公開していないため、`npx tsugite`や`npm install tsugite`でこの版を取得しないでください。**
@@ -93,7 +93,7 @@ sha256sum -c SHA256SUMS
 WindowsのPowerShell：
 
 ```powershell
-Get-FileHash .\tsugite-2.0.0-alpha.5.tgz -Algorithm SHA256
+Get-FileHash .\tsugite-2.0.0-alpha.7.tgz -Algorithm SHA256
 Get-Content .\SHA256SUMS
 ```
 
@@ -104,7 +104,7 @@ macOS・Linuxではファイル名の後に`OK`が出ること、Windowsでは2�
 同じ作業フォルダで、1行ずつ実行します。`tsugite-local`と`my-video`は新しく作るフォルダです。すでに同名がある場合は別の空の作業フォルダを使ってください。
 
 ```sh
-npm install --prefix ./tsugite-local --ignore-scripts ./tsugite-2.0.0-alpha.5.tgz
+npm install --prefix ./tsugite-local --ignore-scripts ./tsugite-2.0.0-alpha.7.tgz
 node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs init ./my-video
 node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs check --project ./my-video
 node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs plan --project ./my-video
@@ -127,7 +127,7 @@ node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs export --project ./my-
 
 ## すでにリポジトリが手元にある場合
 
-これは**手元のソース版**を使う経路です。公開済みalpha.5の配布ファイルとは別です。GitHubのmainには配布後の変更が加わることがあり、手元だけの追加更新がある場合はmainとも内容が異なります。版番号が同じでも、追加ツールが同じ版に更新されているとは限りません。[対応範囲と追加プラグインの条件](../plugins.md)を確認してください。
+これは**手元のソース版**を使う経路です。公開済みalpha.6の配布ファイルとは別です。GitHubのmainには配布後の変更が加わることがあり、手元だけの追加更新がある場合はmainとも内容が異なります。版番号が同じでも、追加ツールが同じ版に更新されているとは限りません。[対応範囲と追加プラグインの条件](../plugins.md)を確認してください。
 
 ### 1. リポジトリ直下で準備する
 
@@ -142,10 +142,13 @@ v2のサンプルだけを試すために、v1の`npm run setup`や追加エン�
 ### 2. 新しいサンプルの計画を開く
 
 ```sh
-npm run --silent v2 -- init ./projects/my-first-v2-video
-npm run --silent v2 -- check --project ./projects/my-first-v2-video
-npm run --silent v2 -- plan --project ./projects/my-first-v2-video
+npm run --silent v2 -- init ./my-first-v2-video
+npm run --silent v2 -- check --project ./my-first-v2-video
+npm run --silent v2 -- plan --project ./my-first-v2-video
 ```
+
+v2 の設定と好みは `~/.tsugite`（上書きは `TSUGITE_HOME`）です。v1 の
+`TSUGITE_PROJECTS_HOME` は読みません。リポジトリの `projects/` に書かないでください。
 
 `check`が`"ok": true`になったことを確認してください。`my-first-v2-video`がすでにある場合は、3行とも同じ新しい名前へ変えます。既存の制作案件を指定しないでください。
 
@@ -156,11 +159,11 @@ npm run --silent v2 -- plan --project ./projects/my-first-v2-video
 確認ページで**Approve plan**を押した後、**2つ目のターミナルをリポジトリ直下で開き**、次を実行します。
 
 ```sh
-npm run --silent v2 -- make --project ./projects/my-first-v2-video
-npm run --silent v2 -- export --project ./projects/my-first-v2-video
+npm run --silent v2 -- make --project ./my-first-v2-video
+npm run --silent v2 -- export --project ./my-first-v2-video
 ```
 
-動画は**`projects/my-first-v2-video/out/final.mp4`**です。
+動画は**`my-first-v2-video/out/final.mp4`**です。
 
 ## 確認ページでの操作
 
@@ -193,10 +196,18 @@ npm run --silent v2 -- export --project ./projects/my-first-v2-video
 
 | やりたいこと | エージェントへの依頼例 |
 | --- | --- |
+| 短編の構成を相談する | 「90秒の短編を、アイデアから構成だけ相談したい。画像も生成もまだ不要。」 |
+| 台本を診断する | 「20秒の台本を直したい。夜のホーム。Aは『もう行く』、Bは『待って』。残したいのは二人の距離。診断まで。」 |
+| 曲からMVを考える | 「90秒のMVにしたい。曲はまだ聴いていない。拍や歌詞時刻を作らず、構成だけ相談したい。」 |
+| 民話を構成する | 「3分の民話。昔話の起こりと余韻を残し、広告の締めにはしない。」 |
+| 静かな映像を構成する | 「60秒の静かな自然映像。ドラマ・CTA不要。」 |
+| 採用した構成を制作へ進める | 「採用した構成メモをこのv2案件へ結び、計画の確認ページまで出して。生成も承認もまだしない。」 |
 | 手元の動画を短くする | 「この動画の10秒〜25秒を使い、縦長の15秒動画にしたいです。元ファイルを残して、新しいv2案件の計画まで準備してください。」 |
 | 字幕を入れる | 「この動画とSRT字幕を使いたいです。字幕の時間と動画の長さが合うか確認し、まず計画を見せてください。」 |
 | 好みを残す | 「『冒頭を短くしたい』を今回の好みメモに残してください。次の修正案を出し、実行前に確認ページで止めてください。」 |
 | 新しいAI映像を生成する | 「使えるサービスと未検証の点、必要な接続設定、サービスごとのクレジットを先に説明してください。まだログイン・課金・生成しないでください。」 |
+
+構成だけを相談するときは [物語・構成の相談](../story-consult.ja.md) に沿います。画像、APIキー、FFmpeg、確認ページの承認は、その相談の完了条件ではありません。
 
 希望はエージェントが対応範囲を確認して設定へ反映します。好みメモを残しただけで動画を自動修正する機能ではありません。外部サービスを使う場合は、素材の送信先・接続・利用条件・予算を別途確認します。異なるサービスのクレジットは合算しません。
 

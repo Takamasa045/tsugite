@@ -6,7 +6,7 @@ It is a standalone React workbench, separate from Tsugite's pipeline backend.
 
 ## Install and open
 
-On macOS with Node.js 22.12+ (22.x), npm 10+, and Git, run from the Tsugite root:
+On macOS with Node.js 22.23.4+ (22.x), npm 10+, and Git, run from the Tsugite root:
 
 ```sh
 npm run editframe:examples:install

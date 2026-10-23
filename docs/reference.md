@@ -4,11 +4,11 @@ This page holds the previous README material. The non-engineer entry is [README.
 
 The heading map is in [readme-heading-map.md](guide/readme-heading-map.md).
 
-Public Desktop installers have ended. Everyday use is this GitHub repository plus Codex, Claude Code, or another local coding agent, with a loopback browser launcher. The repository source version is `0.18.0`; independent v2 is `2.0.0-alpha.5`.
+Public Desktop installers have ended. Everyday use is this GitHub repository plus Codex, Claude Code, or another local coding agent, with a loopback browser launcher. The repository source version is `0.19.0`; independent v2 is `2.0.0-alpha.7`.
 
 [日本語](../README.ja.md) | [English](../README.md) | [中文](../README.zh.md) | [한국어](../README.ko.md)
 
-**日本語で始める：** [最初に試す用途と公開デモ](onboarding/see-and-choose.ja.md) → [必要な準備・最初の一歩](../README.ja.md#はじめ方)。6秒サンプルは環境確認用です。公開済みalpha.5と手元のリポジトリの手順を分けて案内しています。
+**日本語で始める：** [最初に試す用途と公開デモ](onboarding/see-and-choose.ja.md) → [必要な準備・最初の一歩](../README.ja.md#はじめ方)。6秒サンプルは環境確認用です。公開済みalpha.6と手元のリポジトリの手順を分けて案内しています。
 
 English reference continues below. The published alpha.5 archive is a fixed release; later repository or private local changes are separate. The first-video guide distinguishes these installation paths.
 
@@ -20,12 +20,15 @@ See the existing [18-second Fast Edit feature sample](https://github.com/Takamas
 
 The alpha.5 [production-guidance flow](../v2/docs/production-guidance.md) connects actual media inspection, three advisory choices, a separately reviewed opening preview and output QA. Explicit user constraints win; selecting a guide does not automatically decorate a video. It is included in the alpha.5 archive and the repository checkout. Earlier fixed archives remain unchanged.
 
-Source version **0.18.0**. Public Desktop installers have ended; everyday use is this GitHub repository plus Codex, Claude Code, or another local coding agent, with a loopback browser launcher for inspection. See the [changelog](../CHANGELOG.md).
+Source version **0.19.0**. Public Desktop installers have ended; everyday use is this GitHub repository plus Codex, Claude Code, or another local coding agent, with a loopback browser launcher for inspection. See the [changelog](../CHANGELOG.md).
 
 The independent [継手 / Tsugite v2 alpha](../v2/README.md) adds a small, installable
 CLI with page-only checks, per-service budgets and portable preferences. Existing
-v1 commands and active productions stay on v1. The alpha's paid-service and
-independent-user acceptance gates remain open.
+v1 commands and active productions stay on v1. New work starts from the root
+README on v2. ElevenLabs SFX has one recorded paid acceptance. PixVerse, Kling,
+and TopView connect through each service CLI while that subscription is already
+logged in, not through an API key in settings. That real-machine check and the
+independent-user gates remain open.
 
 From this repository, use `npm run --silent v2 -- --help`, then `npm run --silent v2 -- init
 ./projects/my-video-v2` and `npm run --silent v2 -- plan --project ./projects/my-video-v2`. Keep the
@@ -68,7 +71,7 @@ Every job has a `project.yaml`. Copyable examples live under `examples/`. Your w
 | --- | --- | --- |
 | PixVerse / Kling CLI adapters | Text-to-video and image-to-video through the pipeline | [Optional adapters](optional-adapters.md) |
 | Prompt catalogs | Source-backed T2V / I2V advice for PixVerse, Kling, and Seedance. A catalog is not an execution capability and does not rewrite prompts | [Prompt guides](prompt-guides.md) |
-| Story guides | 34 narrative structures plus 35 film-grammar / AI-video principles, chosen with reasons | [Story guides](story-guides.md) |
+| Story guides | 34 narrative structures plus 36 film-grammar / AI-video principles, chosen with reasons | [Story guides](story-guides.md) |
 | TopView skill CLI | T2V and single-frame I2V | [TopView CLI](topview-cli.md) |
 | H3 Prompt Director | Typed Creative IR → deterministic English prompt for MiniMax H3 (`minimax-h3`) | [H3 Prompt Director](h3-prompt-director.md) |
 
@@ -117,7 +120,7 @@ The 3D Viewer is a read-only snapshot of the current run. Details: [Local launch
 
 | Extra | Role | Docs |
 | --- | --- | --- |
-| Hypit production | Adapter-owned authoring path (`npm run hypit:install`). Not a pipeline render backend and not a substitute for Gate 1 / 3. Live `hypit build` / MP4 acceptance are not claimed by the source bump. Needs Node.js 22.15+ in the 22.x line for the Hypit runtime; core stays 22.12 | [Hypit](hypit.md) |
+| Hypit production | Adapter-owned authoring path (`npm run hypit:install`). Not a pipeline render backend and not a substitute for Gate 1 / 3. Live `hypit build` / MP4 acceptance are not claimed by the source bump. Needs Node.js 22.15+ in the 22.x line for the Hypit runtime; core recommends 22.23.4 | [Hypit](hypit.md) |
 | Editframe examples | Opt-in pinned gallery of 27 official samples: `npm run editframe:examples:install` then `npm run editframe:examples` | [Editframe examples](editframe-examples.md) |
 | Agent Services | Separate registry for public read-only Remote MCP (`services` / `service-tools` / `service-call`). Isolated from generation `connections` | [Agent Services](agent-services.md) |
 | Shitate import | Copy a SHA-256-locked character snapshot from a separate Shitate repo. Not required for normal use | [Shitate](shitate.md) |
@@ -188,7 +191,7 @@ The root `SKILL.md` is a legacy compatibility entry.
 
 ## Local launcher and 3D viewer
 
-Open the Tsugite repository in Codex or Claude Code, then use the loopback browser launcher beside it. Electron remains for development and regression tests only; see [Desktop](desktop.md).
+Open the Tsugite repository in Codex or Claude Code, then use the loopback browser launcher beside it. Electron source and embedded terminals have been removed; see [Desktop retirement](desktop.md).
 
 ```sh
 npm --prefix apps/workflow-viewer ci  # first time only
@@ -212,7 +215,7 @@ JSON contract, controls, and limits: [`apps/workflow-viewer/README.md`](../apps/
 
 ## Detailed setup and OS notes
 
-Prerequisites: Git, Node.js 22.12 or newer in the 22.x LTS line, npm 10 or newer, and FFmpeg including `ffprobe`. Optional Hypit production additionally requires Node.js 22.15 or newer in the 22.x line.
+Prerequisites: Git, Node.js 22.23.4 or newer in the 22.x LTS line, npm 10 or newer, and FFmpeg including `ffprobe`. Optional Hypit production is validated separately; 22.23.4 satisfies its Node 22 minimum. See [runtime policy](node-runtime.md) before using 24/26.
 
 ```sh
 # macOS
@@ -462,4 +465,4 @@ Every promotion requires human approval and should leave either a reproducing fi
 - `npm run check` enforces the vendor boundary, TypeScript build, the full test suite, and minimum coverage of 80% statements, functions, and lines, plus 74.4% branches for `src/` (held after Production Orchestration; restoring 75% remains debt). Coverage uses at most four Vitest workers so process-heavy fixtures remain stable on high-core machines and CI runners.
 - `npm run security:audit` checks both the production dependency tree and the full development tree, failing on moderate-or-higher advisories.
 - Vite may warn because this workspace path contains `*`. Tests currently pass in this path; move the repo to a path without `*` if that warning becomes operationally noisy.
-- 1.0 still requires live provider/billing evidence and packaged Desktop UAT. Windows smoke is verified on GitHub Actions. Desktop installers stay outside this source release.
+- 1.0 still requires live provider/billing evidence. Windows smoke is verified on GitHub Actions. Desktop installers stay outside this source release.

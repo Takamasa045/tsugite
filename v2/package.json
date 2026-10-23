@@ -1,6 +1,6 @@
 {
   "name": "tsugite",
-  "version": "2.0.0-alpha.5",
+  "version": "2.0.0-alpha.7",
   "description": "Human-reviewed, budgeted video workflows — 継手",
   "type": "module",
   "license": "MIT",
@@ -15,19 +15,20 @@
     "packs",
     "skills",
     "docs",
+    "knowledge",
     "README.md",
     "README.ja.md",
     "LICENSE"
   ],
   "engines": {
-    "node": ">=22.12"
+    "node": ">=22.23.4 <23 || >=24.22.1 <25 || >=26.12.1 <27"
   },
   "scripts": {
     "test": "node --test tests/*.node.mjs plugins/*/test.mjs",
     "test:offline": "node scripts/offline-smoke.mjs",
     "test:extended": "node scripts/expanded-smoke.mjs",
-    "check": "node --check src/core.mjs && node --check src/review.mjs && node --check src/i18n.mjs && node --check src/cli.mjs && npm test",
-    "security:audit": "npm audit --omit=dev"
+    "check": "node --check src/core.mjs && node --check src/review.mjs && node --check src/i18n.mjs && node --check src/cli.mjs && node --check src/story.mjs && node --check plugins/pixverse/cli-run.mjs && node --check plugins/kling/cli.mjs && node --check plugins/topview/cli.mjs && npm test",
+    "security:audit": "node ../scripts/offline-audit.mjs --omit=dev --audit-level=low"
   },
   "dependencies": {
     "yaml": "2.9.1"

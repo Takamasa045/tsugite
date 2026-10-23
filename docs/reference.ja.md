@@ -4,7 +4,7 @@
 
 旧見出しの移動表は [readme-heading-map.md](guide/readme-heading-map.md) にあります。
 
-Desktop アプリの一般配布は終了しています。日常の入口は GitHub のこのリポジトリと、Codex / Claude Code などのローカルエージェント、確認用のブラウザランチャーです。版番号はリポジトリ本体 `0.18.0` と、独立した v2 `2.0.0-alpha.5` を別に管理しています。
+Desktop アプリの一般配布は終了しています。日常の入口は GitHub のこのリポジトリと、Codex / Claude Code などのローカルエージェント、確認用のブラウザランチャーです。版番号はリポジトリ本体 `0.19.0` と、独立した v2 `2.0.0-alpha.7` を別に管理しています。
 
 [日本語](../README.ja.md) | [English](../README.md) | [中文](../README.zh.md) | [한국어](../README.ko.md)
 
@@ -38,19 +38,19 @@ AIエージェントは単独でも編集できます。継手では、**どの�
 - AIエージェントに準備を頼み、**計画 → 素材 → 完成動画**を確認して進める。
 - 「冒頭を短くしたい」などの好みを記録して、次の計画に引き継ぐ。
 
-外部の動画生成サービスやRemotion・HyperFramesなどの追加ツールは、必要になってから選べます。最初のサンプルには不要です。v2は開発途中の**アルファ版**で、実課金サービスの受け入れ確認と第三者による初回利用テストは完了していません。
+外部の動画生成サービスやRemotion・HyperFramesなどの追加ツールは、必要になってから選べます。最初のサンプルには不要です。v2は開発途中の**アルファ版**です。新しい制作の入口はルートの README です。ElevenLabs の SFX は実課金 1 件が記録されています。PixVerse、Kling、TopView は API キーではなく、各サービスの CLI にログインした状態で使います。経路はパッケージ内にあり、実機確認と第三者の初回利用テストは完了していません。
 
 ### 用意するもの
 
 - パソコンと、ファイル操作・コマンド実行ができる環境。
-- **Node.js 22.12以上の22.xとnpm 10以上**、**FFmpeg・FFprobe**。FFmpegは`libx264`対応が必要です。これらは動画処理を動かすためのソフトです。
+- **Node.js 22.23.4以上の22.xとnpm 10以上**、**FFmpeg・FFprobe**。FFmpegは`libx264`対応が必要です。これらは動画処理を動かすためのソフトです。
 - 操作を任せるなら、ローカルのフォルダを扱える**Codex・Claude Codeなど**。ブラウザのチャットだけではパソコン内の準備は実行できません。
 
 ソフトの取得と初回の依存導入にはインターネット接続が必要です。準備後のサンプル制作はオフラインで動きます。エージェント自体の利用料金は別です。Desktopアプリの一般配布は終了しているため、インストーラーを探す必要はありません。
 
 ### 最初の一歩
 
-**まだ導入していない方：** [日本語のはじめてガイド](onboarding/first-video.ja.md)を開いてください。公開済みalpha.5の取得から、確認画面での操作、MP4の保存先まで順番に説明しています。ターミナル（コマンドを入力する画面）の操作を任せたい場合は、同じガイドの[エージェントへの依頼文](onboarding/first-video.ja.md#エージェントに準備を頼む場合)を使えます。
+**まだ導入していない方：** [日本語のはじめてガイド](onboarding/first-video.ja.md)を開いてください。公開済みalpha.6の取得から、確認画面での操作、MP4の保存先まで順番に説明しています。ターミナル（コマンドを入力する画面）の操作を任せたい場合は、同じガイドの[エージェントへの依頼文](onboarding/first-video.ja.md#エージェントに準備を頼む場合)を使えます。
 
 **すでにこのリポジトリを開いている方：** [ローカル版で試す手順](onboarding/first-video.ja.md#すでにリポジトリが手元にある場合)へ進んでください。準備済みなら、リポジトリ直下のターミナルで次から始めます。
 
@@ -74,11 +74,11 @@ npm run --silent v2 -- plan --project ./projects/my-first-v2-video
 
 | 手元の状態 | 使う案内 |
 | --- | --- |
-| 新しく試す／公開ファイルから導入する | [v2 alpha.5の日本語手順](onboarding/first-video.ja.md)。npmでの一般公開はしていません。 |
-| このリポジトリを取得済み | [リポジトリから試す手順](onboarding/first-video.ja.md#すでにリポジトリが手元にある場合)。手元だけの追加更新がある場合は、GitHubのmainや公開済みalpha.5と同じ内容とは限りません。 |
+| 新しく試す／公開ファイルから導入する | [v2 alpha.6の日本語手順](onboarding/first-video.ja.md)。npmでの一般公開はしていません。 |
+| このリポジトリを取得済み | [リポジトリから試す手順](onboarding/first-video.ja.md#すでにリポジトリが手元にある場合)。手元だけの追加更新がある場合は、GitHubのmainや公開済みalpha.6と同じ内容とは限りません。 |
 | `project.yaml`の既存案件を続ける | 下の[v1の機能と詳しい使い方](#v1の機能と詳しい使い方)。既存案件をv2へ自動移行しません。 |
 
-ファイル名が`tsugite.yaml`ならv2、`project.yaml`なら従来のv1です。リポジトリ本体の版番号`0.18.0`と、独立したv2の`2.0.0-alpha.5`は別に管理されています。v2の版番号が同じでも、手元の追加更新と公開済み配布ファイルの内容が同じとは限りません。
+ファイル名が`tsugite.yaml`ならv2、`project.yaml`なら従来のv1です。リポジトリ本体の版番号`0.19.0`と、独立したv2の`2.0.0-alpha.7`は別に管理されています。v2の版番号が同じでも、手元の追加更新と公開済み配布ファイルの内容が同じとは限りません。
 
 ### 目的別の案内
 
@@ -118,7 +118,7 @@ npm run --silent v2 -- plan --project ./projects/my-first-v2-video
 | --- | --- | --- |
 | PixVerse / Kling CLI adapter | パイプライン経由の T2V / I2V | [Optional Adapters](optional-adapters.md) |
 | Prompt catalog | PixVerse / Kling / Seedance の出典付き助言。カタログの存在は実行能力ではなく、prompt も自動変更しない | [モデル別プロンプト知識](prompt-guides.md) |
-| Story guides | 34種の物語構成と、35種の映像文法・AI動画原則を理由付きで選ぶ | [王道の物語構成・映像文法](story-guides.md) |
+| Story guides | 34種の物語構成と、36種の映像文法・AI動画原則を理由付きで選ぶ | [王道の物語構成・映像文法](story-guides.md) |
 | TopView skill CLI | T2V と単一画像 I2V | [TopView CLI](topview-cli.md) |
 | H3 Prompt Director | MiniMax H3（`minimax-h3`）向け Creative IR → 決定的な英語プロンプト | [H3 Prompt Director](h3-prompt-director.md) |
 
@@ -167,7 +167,7 @@ MiniMax direct / MiniMax HTTP は **preflight-only** のまま、送信可能と
 
 | 追加 | 役割 | 詳細 |
 | --- | --- | --- |
-| Hypit 制作 | adapter 所有の authoring 経路（`npm run hypit:install`）。pipeline render backend ではなく、Gate 1 / 3 の代替でもない。live な `hypit build` / MP4 受け入れはソース bump では主張しない。Hypit runtime は Node.js 22.15以上（22.x）。本体の最低版は 22.12 | [Hypit](hypit.md) |
+| Hypit 制作 | adapter 所有の authoring 経路（`npm run hypit:install`）。pipeline render backend ではなく、Gate 1 / 3 の代替でもない。live な `hypit build` / MP4 受け入れはソース bump では主張しない。Hypit runtime は Node.js 22.15以上（22.x）。本体の最低版は 22.23.4 | [Hypit](hypit.md) |
 | Editframe examples | 公式サンプル 27件の固定ギャラリー。`npm run editframe:examples:install` のあと `npm run editframe:examples` | [Editframe examples](editframe-examples.md) |
 | Agent Services | 公開 read-only Remote MCP 用の別 registry（`services` / `service-tools` / `service-call`）。生成 `connections` とは分離 | [Agent Services](agent-services.md) |
 | Shitate import | 別リポの SHA-256 lock 付きキャラ snapshot を取り込む。通常利用には不要 | [Shitate連携](shitate.md) |
@@ -240,7 +240,7 @@ Claude Codeでは `.claude/skills/tsugite/SKILL.md` が `/tsugite` として同�
 
 ## ローカルランチャーと3D Viewer
 
-Tsugiteリポジトリをいつもの Codex / Claude 環境で開き、案件確認にはブラウザ版ランチャーを並べます。Electron 版は開発・回帰検証用です。配布状態は [Desktop](desktop.md) を参照してください。
+Tsugiteリポジトリをいつもの Codex / Claude 環境で開き、案件確認にはブラウザ版ランチャーを並べます。Electronソースと内蔵端末は削除しました。[Desktop終了案内](desktop.md)を参照してください。
 
 ```sh
 npm --prefix apps/workflow-viewer ci  # 初回のみ
@@ -264,7 +264,7 @@ JSON仕様、操作、制限は [`apps/workflow-viewer/README.md`](../apps/workf
 
 ## セットアップ詳細とOS別の注意
 
-必要環境は Git、Node.js 22.12以上の22.x LTS、npm 10以上、FFmpeg（`ffprobe`を含む）です。任意の Hypit 制作は追加で Node.js 22.15以上（22.x）が必要です。本体の最低版は 22.12 のままです。
+必要環境は Git、Node.js 22.23.4以上の22.x LTS、npm 10以上、FFmpeg（`ffprobe`を含む）です。推奨版22.23.4は任意のHypit runtimeのNode 22最低版も満たします。24／26系と任意連携の検証範囲は[Node方針](node-runtime.md)を参照してください。
 
 ```sh
 # macOS
@@ -514,4 +514,4 @@ QA の判定ルール       -> Gate 2 / Gate 3 checks + report schema/tests
 - `npm run check` はvendor boundary、TypeScript build、全テストに加え、`src/`のstatements / functions / linesが80%以上、branchesが74.4%以上であることを強制します（Production Orchestration 導入後の保持値。75%復帰は残債）。高core環境やCI runnerでもprocess-heavyなfixtureを安定させるため、coverageはVitestを最大4 workerで実行します。
 - `npm run security:audit` はproduction依存と開発依存を含む全体の両方を検査し、moderate以上のadvisoryで失敗します。
 - この workspace path には `*` が含まれるため、Vite が警告する場合があります。現在この path でも tests は通りますが、運用上ノイズになる場合は `*` を含まない path に repo を移してください。
-- 1.0 は live provider/billing 証拠と packaged Desktop UAT がまだ必要です。Windows smoke は GitHub Actions で確認済みです。Desktop インストーラーはこのソースリリースの対象外です。
+- 1.0 は live provider/billing 証拠 がまだ必要です。Windows smoke は GitHub Actions で確認済みです。Desktop インストーラーはこのソースリリースの対象外です。

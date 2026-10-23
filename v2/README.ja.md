@@ -1,6 +1,6 @@
 # 継手 / Tsugite v2
 
-手元の動画をエージェントと準備し、計画・素材・できあがりを人が確認する道具です。**2.0.0-alpha.5は開発途中の配布版**です。実課金受入・第三者試用は完了していません。
+手元の動画をエージェントと準備し、計画・素材・できあがりを人が確認する道具です。**2.0.0-alpha.7は開発途中の配布版**です。ElevenLabs の SFX は実課金 1 件を記録済みです。PixVerse、Kling、TopView は API キーではなく、各サービスの CLI にログインした状態で使います。経路は同梱済みで、実機確認と第三者試用は完了していません。リポジトリの入口は [ルートの README](../README.ja.md) です。
 
 ## はじめての方はこちら
 
@@ -14,14 +14,14 @@
 
 ## 目的別の案内
 
-- 初回導入：[日本語のはじめてガイド](docs/onboarding/first-video.ja.md)。Node.js 22.12以上、npm 10以上、libx264対応FFmpeg・FFprobeが必要です。最初のサンプルにはAPIキーも生成クレジットも不要です。
+- 初回導入：[日本語のはじめてガイド](docs/onboarding/first-video.ja.md)。Node.js 22.23.4以上、npm 10以上、libx264対応FFmpeg・FFprobeが必要です。最初のサンプルにはAPIキーも生成クレジットも不要です。
 - 自分の素材：[素材確認・方針選択・冒頭試写・品質レビュー](docs/production-guidance.md)。素材を実際に確認し、今回の希望を優先します。装飾の自動生成ではありません。
 - コマンドと設定：[English README](README.md)・[対応範囲](docs/requirements.md)・[プラグインとライセンス](docs/plugins.md)。
 
-[alpha.5の配布ページ](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.5)からtarballとSHA256SUMSを取得し、照合後に新しいフォルダへローカル導入してください。npmレジストリには公開していません。
+[alpha.6の配布ページ](https://github.com/Takamasa045/tsugite/releases/tag/v2.0.0-alpha.7)からtarballとSHA256SUMSを取得し、照合後に新しいフォルダへローカル導入してください。npmレジストリには公開していません。
 
 ```sh
-npm install --prefix ./tsugite-local --ignore-scripts ./tsugite-2.0.0-alpha.5.tgz
+npm install --prefix ./tsugite-local --ignore-scripts ./tsugite-2.0.0-alpha.7.tgz
 node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs init ./my-video
 node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs check --project ./my-video
 node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs plan --project ./my-video
@@ -45,3 +45,4 @@ node ./tsugite-local/node_modules/tsugite/bin/tsugite.mjs export --project ./my-
 - [第三者試用キット](docs/onboarding/trial-kit.ja.md)
 - [プラグインとライセンス](docs/plugins.md)
 - [alpha.5の配布範囲](docs/release-alpha5.md)
+- [物語・構成の相談](docs/story-consult.ja.md)。`plugin story consult` は git の作業ツリーでも npm の配布物でも動きます。読むのは同梱の `knowledge/story-frameworks/catalog.yaml` だけです。

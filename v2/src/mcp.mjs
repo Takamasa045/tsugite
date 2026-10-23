@@ -15,7 +15,7 @@ export async function startMcp(root) {
   // Resolve sibling transports from the SDK's exact public export, including paths containing '*'.
   const { StdioServerTransport } = await import(new URL('./stdio.js',import.meta.resolve('@modelcontextprotocol/sdk/server')));
   const { ListToolsRequestSchema, CallToolRequestSchema } = await import(new URL('../types.js',import.meta.resolve('@modelcontextprotocol/sdk/server')));
-  const server = new Server({name:'tsugite',version:'2.0.0-alpha.5'},{capabilities:{tools:{}}});
+  const server = new Server({name:'tsugite',version:'2.0.0-alpha.7'},{capabilities:{tools:{}}});
   server.setRequestHandler(ListToolsRequestSchema,async()=>({tools:workflowTools.map(name=>({name,description:`${name} in the configured local project. Human checks require the confirmation page.`,inputSchema:{type:'object',properties:name==='note'?{text:{type:'string'}}:{},required:name==='note'?['text']:[],additionalProperties:false}}))}));
   server.setRequestHandler(CallToolRequestSchema,async request=>{
     try { return {content:[{type:'text',text:JSON.stringify(await callTool(root,request.params.name,request.params.arguments))}]}; }

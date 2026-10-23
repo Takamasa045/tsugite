@@ -84,7 +84,7 @@ export const PRODUCTION_WORKSPACE_NAME = "hypit-workspace";
 const DEFAULT_PROFILE_NAME = "hypit.runtime.json";
 const POOL_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
-/** Additional Hypit runtime requirement. Tsugite core remains Node.js >=22.12 <23. */
+/** Additional Hypit runtime requirement. Tsugite core defaults to Node.js 22.23.4; Hypit 24/26 support is not certified. */
 export const HYPIT_MIN_NODE_VERSION = "22.15.0";
 
 export function parseNodeVersion(version) {
@@ -103,7 +103,7 @@ export function isHypitSupportedNodeVersion(version) {
 export function assertHypitNodeVersion(version = process.version) {
   if (!isHypitSupportedNodeVersion(version)) {
     throw coded(
-      `Hypit runtime requires Node.js >=${HYPIT_MIN_NODE_VERSION} on the 22.x line. Tsugite core remains Node.js >=22.12 <23. Current: ${version}`,
+      `Hypit runtime requires Node.js >=${HYPIT_MIN_NODE_VERSION} on the 22.x line. Tsugite core defaults to Node.js 22.23.4; Hypit 24/26 support is not certified. Current: ${version}`,
       "HYPIT_NODE_UNSUPPORTED"
     );
   }

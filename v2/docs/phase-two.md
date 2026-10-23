@@ -35,6 +35,10 @@ budget: {}
 Clip source bounds, audio offsets, durations and caption times are validated
 before approval. Fixed clip durations must fit the requested total; unspecified
 local clip durations share remaining time. String-only sample inputs can loop.
+PNG, JPEG and WebP stills are allowed in `use` when `seconds` is explicit; they
+hold that duration and cannot request source audio or a trim start. Only the
+local renderer and Remotion hold stills; Fast Edit and HyperFrames refuse that
+combination at planning.
 The local renderer always writes a consistent audio stream; omitted sound is
 silence. Audio tracks can be BGM, narration or SFX and are volume-limited in mix.
 
@@ -57,7 +61,7 @@ tsugite plugin add elevenlabs
 ```
 
 These copy bundled standalone packages into this project without npm/network
-operations. Their explicit synthetic mode remains zero-cost. Official HTTP transports now have synthetic protocol tests; paid acceptance is unverified.
+operations. Their explicit synthetic mode remains zero-cost. Official HTTP transports have synthetic protocol tests. ElevenLabs SFX has one recorded paid acceptance. PixVerse, Kling, and TopView are not connected by an API key in settings: the bundled plugins call each service CLI while that subscription is already logged in. That real-machine check is open, and this page adds no login command.
 Set `execution: mock` explicitly to create test patterns or sine-wave audio:
 
 ```yaml
@@ -67,6 +71,14 @@ make:
     with: pixverse
     prompt: Synthetic contract fixture
     seconds: 5
+  - id: from-still
+    with: pixverse
+    prompt: Synthetic image-to-video fixture
+    seconds: 5
+    options:
+      mode: image
+    inputs:
+      - assets/first.png
   - id: voice
     with: elevenlabs
     kind: audio
@@ -74,6 +86,23 @@ make:
     seconds: 3
     options:
       voice_id: mock-voice
+      model: eleven_multilingual_v2
+      stability: 0.5
+  - id: score
+    with: elevenlabs
+    kind: audio
+    prompt: Synthetic music fixture
+    seconds: 8
+    options:
+      mode: music
+      force_instrumental: true
+  - id: hit
+    with: elevenlabs
+    kind: audio
+    prompt: Synthetic whoosh
+    seconds: 1.5
+    options:
+      mode: sfx
 ```
 
 No key, account or live request is used. Mock quotes and settlements are zero;
@@ -174,7 +203,10 @@ advertise source inspection only until their runtime adapter is reviewed.
 
 ## Manual reconciliation
 
-An uncertain job holds its reservation. After checking its actual outcome,
+An uncertain reservation holds its credits even when the local media already
+exists. Provider transports may return explicit `credits: null` after a successful
+download; the clip is done and the page still asks for a receipt. Omitting
+`credits` is a contract failure. After checking its actual outcome,
 prepare a local normalized receipt and review it in the page:
 
 ```json

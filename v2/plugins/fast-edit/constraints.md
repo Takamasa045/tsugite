@@ -15,6 +15,7 @@ executable code or external assets. The frame-time scene and deterministic WAV
 helper are adapted from Tsugite v1 under MIT (LICENSE included); no v1 core import
 is used. Existing v1 Fast Edit decisions migrate through a declared plugin hook.
 
+Still-image holds are rejected at planning; live copies inputs as `clip-i.mp4`.
 The real renderer uses the same explicitly installed Remotion peers and existing
 browser. Plain timeline captions support selectable `soft` tracks or `burn`
 overlays; the designed Fast Edit word/card graphics remain part of the picture.
